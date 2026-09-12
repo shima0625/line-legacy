@@ -37,6 +37,8 @@ install -d -m 0755 -o root -g root "$install_root/patches"
 install -m 0644 -o root -g root "$repo_dir/patches/linejs-3.2.1-call.patch" "$install_root/patches/linejs-3.2.1-call.patch"
 install -d -m 0755 -o root -g root "$install_root/tools"
 install -m 0755 -o root -g root "$repo_dir/tools/patch-linejs.sh" "$install_root/tools/patch-linejs.sh"
+install -m 0755 -o root -g root "$repo_dir/tools/doctor.sh" "$install_root/tools/doctor.sh"
+install -m 0755 -o root -g root "$repo_dir/tools/setup.sh" "$install_root/tools/setup.sh"
 
 # EAS1 helper sources. The helper binary and libamp.so are not shipped; build
 # them here (see eas1-helper/README.md) if call support is needed.
