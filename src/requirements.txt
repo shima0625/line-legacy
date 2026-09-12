@@ -3,3 +3,6 @@
 # src/*.py uses the standard library.
 akad==0.11.1
 thrift==0.24.0
+# Only needed when LINE_LEGACY_SKYGLOW_ROUTING_KEYS carries an end-to-end key,
+# so that notifications are encrypted before they reach the Skyglow server.
+cryptography>=42.0.0

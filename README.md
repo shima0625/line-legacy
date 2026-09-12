@@ -96,8 +96,11 @@ Skyglowを別のCompose構成または母艦上で動かす場合は、`docker-d
 
 ```ini
 LINE_LEGACY_SKYGLOW_URL=http://host.docker.internal:3023/send
+LINE_LEGACY_SKYGLOW_SERVER_ADDRESS=linepush.test
 LINE_LEGACY_SKYGLOW_ROUTING_KEYS=64文字の16進ルーティングトークン
 ```
+
+共用サーバーを使う場合の値は「Skyglowプッシュ通知」の節にあります。
 
 ```sh
 docker compose --profile push up -d
@@ -284,7 +287,7 @@ sudo systemctl --no-pager --full status line-legacy-eas1.service line-legacy-cal
 
 iOS 6の端末は現在ほとんどAPNsを受け取れないため、通知にはSkyglow（旧環境向けのサードパーティ製プッシュ通知基盤）を使います。
 
-Skyglowはクライアント側デーモンのみが公開されており、サーバーは各自で用意する前提です。公開された共用サーバーは存在しません。
+サーバーは各自で用意する方法と、作者が運用している共用サーバーを使う方法があります。後者を使う場合は、通知を母艦で暗号化してから送れます（「共用サーバーを使う場合」を参照）。
 
 - 配布元: https://github.com/ObscureMosquito/Skyglow-Notifications
 - サーバーは同梱のDockerfileからビルドし、互換ゲートウェイと同じホストで動かします。既定ではHTTPが3023番、TCPが21138番です。
@@ -295,6 +298,45 @@ Skyglowはクライアント側デーモンのみが公開されており、サ�
 サーバーのホスト名に`.local`を使わないでください。iOSは`.local`をmDNS専用として扱うため、通常のDNSへ問い合わせが飛ばず、端末登録に失敗します。`.test`など別のローカル用ドメインを使ってください。本リポジトリの既定値は`linepush.test`です。
 
 `dns_probe.py`が`_sgn.linepush.test`のTXTレコードとして、`LINE_LEGACY_SERVER_IP`のアドレスとポート（`tcp_port=21138` / `http_addr=…:3023`）を返します。端末側でアドレスを直接設定する必要はありません。
+
+### 共用サーバーを使う場合
+
+Skyglowの作者が`preloading.dev`で共用サーバーを運用しています（Cydiaソース`http://cydia.preloading.dev`、案内ページ https://cydia.preloading.dev/hackclub/sgn/ ）。母艦にSkyglowサーバーもDockerも用意できない場合はこちらを使えます。
+
+端末側はSkyglowの設定でサーバーを`preloading.dev`にして登録するだけです。自前サーバーの構築、サーバー証明書の登録、`dns_probe.py`のTXTレコードはいずれも不要になります。母艦側は次の3つを指定します。
+
+```ini
+LINE_LEGACY_SKYGLOW_URL=https://sgnprod.preloading.dev/send
+LINE_LEGACY_SKYGLOW_SERVER_ADDRESS=preloading.dev
+LINE_LEGACY_SKYGLOW_ROUTING_KEYS=<ルーティングキー>:<端末のe2ee鍵>
+```
+
+`LINE_LEGACY_SKYGLOW_ROUTING_KEYS`を指定した場合、配送先トークンをローカルのPostgreSQLから読まなくなるため、`docker`の実行権限も不要です。
+
+#### 共用サーバーでは通知を暗号化すること
+
+通知には**メッセージ本文が入ります**。3.7.1のローカライズキーを使う都合上、送信者の表示名と本文（先頭180文字）を載せる必要があるためです。着信通知には発信者の表示名が載ります。
+
+Skyglowは送信側で暗号化済みの通知を受け付けるので、ルーティングキーに端末の`e2ee`鍵を`:`で繋いで指定してください。母艦がAES-256-GCM（IV 12バイト、AADなし、タグは暗号文の末尾）で暗号化してから送るため、**サーバー側には復号できない塊しか渡りません**。この形式にした場合だけ`cryptography`パッケージが必要になります（`src/requirements.txt`に含まれています）。プロトコルの詳細はサーバー側の[sending_notifications.md](https://github.com/Preloading/SkyglowNotificationServer/blob/main/docs/sending_notifications.md)にあります。
+
+2つの鍵は端末の`/var/mobile/Library/SkyglowNotifications/sqlite.db`にあります。設定画面にも`sgnctl`にも`e2ee`鍵を表示する機能は無いので、母艦へコピーして読み出してください。`profile_id`は`com.skyglow.sndp.plist`の`activeProfile`と同じ値です。
+
+```sh
+scp root@<端末のIP>:/var/mobile/Library/SkyglowNotifications/sqlite.db* .
+sqlite3 sqlite.db "select profile_id, hex(routing_key), hex(e2ee_key) from notifications where bundle_id='jp.naver.line';"
+```
+
+同じ行の`token`（32バイト）からも導出できます。前半16バイトがサーバーのアドレス、後半16バイトが`K`で、`routing_key`は`SHA256(K)`、`e2ee`鍵は`HKDF-SHA256(K, salt=サーバーアドレス + "Hello from the Skyglow Notifications developers!", info=空, 32バイト)`です。端末が登録時に導出して保存しているものと同じ値なので、上のSQLで読むほうが確実です。
+
+鍵を省いて平文で送ることもできますが、その場合はサーバーの運用者が会話の内容を読める状態になります。自前サーバーでは平文のままで構いません。
+
+残る注意点は次の3つです。
+
+- **ルーティングキーを知っている相手は、その端末へ任意の通知を送れます。** 暗号化しても、通知そのものを発生させることは防げません。さらに`data_type`に`json`と`plist`以外を入れた通知を送られると、端末が不正なフレームとして接続を切り、再接続までのあいだ通知が止まります。共用サーバーではこのキーが運用者の管理下に置かれます。
+- **前方秘匿性はありません。** トークンが漏れると、過去に送った分も含めて復号されます。
+- **個人が運用しているサーバーです。** 停止した場合、通知は届かなくなります。
+
+なお、`aps`以外の独自フィールド（`m`＝トークのmid、`line_bridge_call`＝着信の接続情報）が共用サーバーを素通りして端末まで届くことは、平文・暗号化のどちらでも確認済みです。
 
 ### 端末側の設定
 

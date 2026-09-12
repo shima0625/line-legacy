@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Forward new LINE bridge messages to the local Skyglow server."""
+import base64
 import json
 import os
 import re
@@ -15,7 +16,11 @@ CALL_OPS = os.path.join(BASE, "call_ops.jsonl")
 CALL_OFFSET_FILE = os.path.join(BASE, "skyglow_call_notify.offset")
 NATIVE_CALL_PUSH_FLAG = os.path.join(BASE, "skyglow_native_call.enabled")
 SERVER_URL = os.environ.get("LINE_LEGACY_SKYGLOW_URL", "http://127.0.0.1:3023/send")
-SERVER_ADDRESS = "linepush.test"
+# The address the device registered against.  The Skyglow server matches this
+# against the routing token, so it has to be the value shown in the tweak's
+# settings, not the URL this process posts to.
+SERVER_ADDRESS = os.environ.get(
+    "LINE_LEGACY_SKYGLOW_SERVER_ADDRESS", "linepush.test")
 MID_RE = re.compile(r"^[ucr][0-9a-f]{32}$", re.IGNORECASE)
 
 
@@ -119,13 +124,27 @@ def message_alert(record):
 
 
 def line_routing_keys():
+    """[(routing key, end-to-end key or None)] for every device to notify.
+
+    An entry may carry the device's end-to-end key as `<routing>:<e2ee>`, in
+    which case the payload is encrypted before it leaves this host and the
+    Skyglow server only relays an opaque blob.  Both halves are 64 hexadecimal
+    characters; the device stores them in `notifications` in its own
+    `SkyglowNotifications/sqlite.db`.
+    """
     configured = os.environ.get("LINE_LEGACY_SKYGLOW_ROUTING_KEYS", "")
     if configured:
         values = []
+        seen = set()
         for value in configured.split(","):
-            value = value.strip().lower()
-            if re.fullmatch(r"[0-9a-f]{64}", value) and value not in values:
-                values.append(value)
+            routing, _, e2ee = value.strip().lower().partition(":")
+            if not re.fullmatch(r"[0-9a-f]{64}", routing) or routing in seen:
+                continue
+            if e2ee and not re.fullmatch(r"[0-9a-f]{64}", e2ee):
+                raise RuntimeError(
+                    "LINE_LEGACY_SKYGLOW_ROUTING_KEYS has an invalid end-to-end key")
+            seen.add(routing)
+            values.append((routing, bytes.fromhex(e2ee) if e2ee else None))
         if not values:
             raise RuntimeError("LINE_LEGACY_SKYGLOW_ROUTING_KEYS is invalid")
         return values
@@ -140,35 +159,56 @@ def line_routing_keys():
         "-Atc", sql,
     ], text=True, timeout=15)
     values = []
+    seen = set()
     for value in output.splitlines():
         value = value.strip().lower()
-        if re.fullmatch(r"[0-9a-f]{64}", value) and value not in values:
-            values.append(value)
+        if re.fullmatch(r"[0-9a-f]{64}", value) and value not in seen:
+            seen.add(value)
+            # The local server is trusted with the plaintext, so nothing is
+            # encrypted on this path.
+            values.append((value, None))
     if not values:
         raise RuntimeError("LINE routing key is unavailable")
     return values
 
 
-def send_notification(routing_key, record):
-    chat_mid = chat_mid_for_message(record)
-    if not chat_mid:
-        raise ValueError("record is not a routable LINE message")
-    payload = {
-        "data": {
-            "aps": {
-                # Use LINE 3.7.1's own localization keys so punctuation and
-                # media wording exactly match the installed Japanese bundle.
-                "alert": message_alert(record),
-                "sound": "default",
-            },
-            # Native LINE 3.7.1 message-notification field.  Do not include
-            # `inapp-alert`: its mere presence makes 3.7.1 treat a foreground
-            # notification like an opened notification and navigate to `m`.
-            "m": chat_mid,
-        },
-        "routing_key": routing_key,
-        "server_address": SERVER_ADDRESS,
+def encrypted_fields(e2ee_key, data):
+    """AES-256-GCM the payload the way the Skyglow daemon decrypts it.
+
+    The key is the one the device derived at registration time and keeps in
+    its `notifications` table, which `SG_CryptoDecryptAESGCM` then uses
+    verbatim: HKDF runs once during registration, never per notification.  The
+    IV is 12 bytes, there is no additional authenticated data, and the 16-byte
+    tag is appended to the ciphertext.  `data_type` names the format of the
+    plaintext and only `json` and `plist` are understood; the daemon's JSON
+    branch canonicalises the result exactly like the server-side encoding of a
+    plaintext `data` object, so the dictionary reaches the app unchanged either
+    way.  Anything else reaches the device as a malformed frame and drops its
+    connection.
+    """
+    try:
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    except ImportError:
+        raise RuntimeError(
+            "an end-to-end key is configured but the cryptography package "
+            "is missing; install src/requirements.txt")
+    iv = os.urandom(12)
+    plaintext = json.dumps(data, ensure_ascii=False).encode("utf-8")
+    return {
+        "is_encrypted": True,
+        "data_type": "json",
+        "ciphertext": base64.b64encode(
+            AESGCM(e2ee_key).encrypt(iv, plaintext, None)).decode("ascii"),
+        "iv": base64.b64encode(iv).decode("ascii"),
     }
+
+
+def post_payload(routing_key, e2ee_key, data):
+    payload = {"routing_key": routing_key, "server_address": SERVER_ADDRESS}
+    if e2ee_key:
+        payload.update(encrypted_fields(e2ee_key, data))
+    else:
+        payload["data"] = data
     request = urllib.request.Request(
         SERVER_URL,
         data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
@@ -181,6 +221,24 @@ def send_notification(routing_key, record):
         result = json.loads(response.read().decode("utf-8"))
         if result.get("status") != "success":
             raise RuntimeError("Skyglow rejected notification")
+
+
+def send_notification(routing_key, e2ee_key, record):
+    chat_mid = chat_mid_for_message(record)
+    if not chat_mid:
+        raise ValueError("record is not a routable LINE message")
+    post_payload(routing_key, e2ee_key, {
+        "aps": {
+            # Use LINE 3.7.1's own localization keys so punctuation and
+            # media wording exactly match the installed Japanese bundle.
+            "alert": message_alert(record),
+            "sound": "default",
+        },
+        # Native LINE 3.7.1 message-notification field.  Do not include
+        # `inapp-alert`: its mere presence makes 3.7.1 treat a foreground
+        # notification like an opened notification and navigate to `m`.
+        "m": chat_mid,
+    })
 
 
 def call_payload(record):
@@ -200,7 +258,7 @@ def call_payload(record):
     }
 
 
-def send_call_notification(routing_key, record):
+def send_call_notification(routing_key, e2ee_key, record):
     caller = str(record.get("from") or "")
     route = call_payload(record)
     if not caller or not route.get("n"):
@@ -222,23 +280,7 @@ def send_call_notification(routing_key, record):
         data.update(route)
     else:
         data["line_bridge_call"] = route
-    payload = {
-        "data": data,
-        "routing_key": routing_key,
-        "server_address": SERVER_ADDRESS,
-    }
-    request = urllib.request.Request(
-        SERVER_URL,
-        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    with urllib.request.urlopen(request, timeout=10) as response:
-        if response.status != 200:
-            raise RuntimeError("Skyglow call HTTP %s" % response.status)
-        result = json.loads(response.read().decode("utf-8"))
-        if result.get("status") != "success":
-            raise RuntimeError("Skyglow rejected call notification")
+    post_payload(routing_key, e2ee_key, data)
 
 
 def read_offset(path, offset_file):
@@ -285,8 +327,8 @@ def main():
                     record = None
                 if record and chat_mid_for_message(record):
                     routing_keys = line_routing_keys()
-                    for routing_key in routing_keys:
-                        send_notification(routing_key, record)
+                    for routing_key, e2ee_key in routing_keys:
+                        send_notification(routing_key, e2ee_key, record)
                     log("message notification sent to %d device(s)" % len(routing_keys))
                 elif record:
                     log("non-message record skipped: %s" %
@@ -310,8 +352,8 @@ def main():
                     record = None
                 if record and int(record.get("type") or 0) == 50:
                     routing_keys = line_routing_keys()
-                    for routing_key in routing_keys:
-                        send_call_notification(routing_key, record)
+                    for routing_key, e2ee_key in routing_keys:
+                        send_call_notification(routing_key, e2ee_key, record)
                     log("call notification sent to %d device(s)" % len(routing_keys))
                 call_offset = next_offset
                 write_offset(CALL_OFFSET_FILE, call_offset)

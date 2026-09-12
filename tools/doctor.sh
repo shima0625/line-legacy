@@ -280,11 +280,17 @@ if [ "$files_only" -eq 0 ]; then
   fi
 
   if has systemctl && { unit_active line-legacy-skyglow.service || unit_enabled line-legacy-skyglow.service; }; then
-    [ -S /var/run/docker.sock ] && pass "Docker socket exists for Skyglow" || fail "Docker socket is missing for Skyglow"
-    if id -nG "$service_user" 2>/dev/null | tr ' ' '\n' | grep -qx docker; then
-      pass "$service_user belongs to the docker group"
+    # Routing tokens given in the environment are read directly, so the local
+    # Skyglow database - and with it Docker - is not involved at all.
+    if [ -n "${LINE_LEGACY_SKYGLOW_ROUTING_KEYS:-}" ]; then
+      pass "Skyglow routing tokens are configured directly"
     else
-      fail "$service_user does not belong to the docker group"
+      [ -S /var/run/docker.sock ] && pass "Docker socket exists for Skyglow" || fail "Docker socket is missing for Skyglow"
+      if id -nG "$service_user" 2>/dev/null | tr ' ' '\n' | grep -qx docker; then
+        pass "$service_user belongs to the docker group"
+      else
+        fail "$service_user does not belong to the docker group"
+      fi
     fi
   fi
 else
