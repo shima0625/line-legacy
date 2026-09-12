@@ -13,7 +13,7 @@ SFTP でファイルを往復させていたが、RasPi 1台に寄せると単�
 """
 import base64, json, os, subprocess, time
 
-BASE = os.path.dirname(os.path.abspath(__file__))
+BASE = os.environ.get("LINE_LEGACY_HOME") or os.path.dirname(os.path.abspath(__file__))
 RECV_OUT = os.path.join(BASE, "recv_out.jsonl")
 OUTBOX = os.path.join(BASE, "outbox.json")
 SEND_QUEUE = os.path.join(BASE, "send_queue.jsonl")

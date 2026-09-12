@@ -50,7 +50,8 @@ def rejection_diagnostic(result):
         hint = ''
     hint = re.sub(r'https?://\S+|[ucr][0-9a-f]{32}|[A-Za-z0-9_+/=-]{24,}', '[redacted]', hint[:1000])
     record = {'code': value[1].get(1, (None, None))[1], 'hint': hint}
-    path = os.path.join(os.path.dirname(__file__), 'friend_add_last_rejection.json')
+    base = os.environ.get('ARTIFACTS_DIR') or os.environ.get('LINE_LEGACY_HOME') or os.path.dirname(__file__)
+    path = os.path.join(base, 'friend_add_last_rejection.json')
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, 'w', encoding='utf-8') as stream:
         json.dump(record, stream, ensure_ascii=False)

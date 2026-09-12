@@ -1,0 +1,126 @@
+x-line-legacy-common: &line-legacy-common
+  build:
+    context: .
+  image: line-legacy:local
+  init: true
+  restart: unless-stopped
+  volumes:
+    - ./docker-data:/state
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+
+services:
+  setup:
+    <<: *line-legacy-common
+    command: ["setup"]
+    profiles: ["tools"]
+    restart: "no"
+
+  login:
+    <<: *line-legacy-common
+    command: ["login"]
+    profiles: ["tools"]
+    restart: "no"
+    stdin_open: true
+    tty: true
+
+  cdn:
+    <<: *line-legacy-common
+    command: ["cdn"]
+    ports:
+      - "80:8081/tcp"
+      - "8081:8081/tcp"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8081/bridge/config"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+
+  gateway:
+    <<: *line-legacy-common
+    command: ["gateway"]
+    environment:
+      DOCKER_CDN_BACKEND: cdn:8081
+    ports:
+      - "443:8443/tcp"
+    depends_on:
+      cdn:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import socket; socket.create_connection(('127.0.0.1', 8443), 3).close()"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+
+  bridge:
+    <<: *line-legacy-common
+    command: ["bridge"]
+    depends_on:
+      gateway:
+        condition: service_healthy
+
+  worker:
+    <<: *line-legacy-common
+    command: ["worker"]
+    depends_on:
+      - bridge
+
+  notices:
+    <<: *line-legacy-common
+    command: ["notices"]
+
+  video:
+    <<: *line-legacy-common
+    command: ["video"]
+    profiles: ["media"]
+    depends_on:
+      - bridge
+
+  enable-video:
+    <<: *line-legacy-common
+    command: ["enable-video"]
+    profiles: ["tools"]
+    restart: "no"
+
+  eas1:
+    build:
+      context: .
+      dockerfile: docker/eas1.Dockerfile
+    image: line-legacy-eas1:local
+    init: true
+    restart: unless-stopped
+    volumes:
+      - ./docker-data:/state
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    profiles: ["calls"]
+
+  call:
+    <<: *line-legacy-common
+    command: ["call"]
+    profiles: ["calls"]
+    ports:
+      - "19000:19000/udp"
+      - "20000:20000/udp"
+    depends_on:
+      - bridge
+      - eas1
+
+  skyglow:
+    <<: *line-legacy-common
+    command: ["skyglow"]
+    profiles: ["push"]
+    depends_on:
+      - bridge
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  doctor:
+    <<: *line-legacy-common
+    command: ["doctor"]
+    profiles: ["tools"]
+    restart: "no"

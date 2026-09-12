@@ -14,7 +14,7 @@ DNS(dns_probe --hijack-map)でこの2ホストをRasPiへ向け、本プロキ�
 import base64, hashlib, html, http.client, io, json, os, plistlib, random, re, shutil, ssl, struct, subprocess, sys, threading, time, urllib.request, urllib.error, urllib.parse, uuid, zipfile, zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-BASE = os.path.dirname(os.path.abspath(__file__))
+BASE = os.environ.get("LINE_LEGACY_HOME") or os.path.dirname(os.path.abspath(__file__))
 LOG = os.path.join(BASE, "cdn_proxy.log")
 UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 12_0 like Mac OS X)"
 

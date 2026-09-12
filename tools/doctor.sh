@@ -5,6 +5,9 @@ set -u
 install_root=${LINE_LEGACY_INSTALL_ROOT:-/opt/line-legacy}
 config_root=${LINE_LEGACY_CONFIG_ROOT:-/etc/line-legacy}
 service_user=${LINE_LEGACY_SERVICE_USER:-linelegacy}
+venv_python=${LINE_LEGACY_PYTHON:-$install_root/venv/bin/python}
+linejs_dir=${LINE_LEGACY_LINEJS_PACKAGE_DIR:-$install_root/linejs-bridge/node_modules/@evex/linejs}
+patch_file=${LINE_LEGACY_PATCH_FILE:-$install_root/patches/linejs-3.2.1-call.patch}
 files_only=0
 
 usage() {
@@ -172,19 +175,17 @@ if has openssl && [ -s "$config_root/server.crt" ] && [ -s "$config_root/server.
   fi
 fi
 
-if [ -x "$install_root/venv/bin/python" ]; then
+if [ -x "$venv_python" ]; then
   pass "Python virtual environment exists"
-  if "$install_root/venv/bin/python" -m pip check >/dev/null 2>&1; then
+  if "$venv_python" -m pip check >/dev/null 2>&1; then
     pass "Python dependencies are consistent"
   else
     fail "Python dependencies are missing or inconsistent"
   fi
 else
-  fail "$install_root/venv/bin/python is missing"
+  fail "$venv_python is missing"
 fi
 
-linejs_dir="$install_root/linejs-bridge/node_modules/@evex/linejs"
-patch_file="$install_root/patches/linejs-3.2.1-call.patch"
 if [ -d "$linejs_dir" ]; then
   pass "@evex/linejs is installed"
 else

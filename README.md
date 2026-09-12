@@ -39,7 +39,7 @@ LINEおよびLY Corporationの公式ソフトウェアではありません。
 iPhone (iOS 4.3以降 + LINE 3.7.1 + LINEBridge Tweak)
         │  LAN: TCP 80 / 443 / 8081
         ▼
-Ubuntu母艦 (LINE Legacy gateway)
+母艦 (Windows／macOS／Linux + LINE Legacy gateway)
         │  LINEJSセッション
         ▼
      現行LINE
@@ -47,11 +47,69 @@ Ubuntu母艦 (LINE Legacy gateway)
 
 TweakがLINEアプリ内の接続先を母艦へ向け、母艦が新旧プロトコルを変換します。Tweakを使う通常構成では、iPhoneのDNSや`/etc/hosts`は変更しません。`line-legacy-dns.service`はTweakを使わない検証用の代替手段で、既定では起動しません。
 
-## Ubuntuへのセットアップ
+## 母艦へのセットアップ
 
-以下は、iPhoneと同じLAN上のUbuntuを母艦にする手順です。`192.168.1.10`は母艦のLAN IP、`192.168.1.20`はiPhoneのLAN IPの例です。実際の値に読み替えてください。
+`192.168.1.10`は母艦のLAN IP、`192.168.1.20`はiPhoneのLAN IPの例です。実際の値に読み替えてください。
 
-### 自動セットアップ
+### Docker Compose（Windows／macOS／Linux）
+
+推奨構成です。母艦OSへPython、Node.js、Apache、systemdを直接導入せず、Docker DesktopまたはDocker EngineとComposeだけで動かせます。リポジトリを取得したら、共通イメージをビルドして初期設定を作ります。
+
+```sh
+docker compose build setup
+docker compose run --rm \
+  -e SETUP_SERVER_IP=192.168.1.10 \
+  -e SETUP_PHONE_IP=192.168.1.20 \
+  setup
+```
+
+WindowsのPowerShellでは改行せず、次のように1行で実行できます。
+
+```powershell
+docker compose run --rm -e SETUP_SERVER_IP=192.168.1.10 -e SETUP_PHONE_IP=192.168.1.20 setup
+```
+
+表示された証明書フィンガープリントを控え、QRログインしてからコア機能を起動します。
+
+```sh
+docker compose run --rm login
+docker compose up -d
+docker compose run --rm doctor
+```
+
+状態、証明書、ログイン情報は`docker-data/`へ保存されます。このディレクトリには認証情報が含まれるため、公開したりGitへ追加したりしないでください。更新時は`git pull`後に`docker compose build`と`docker compose up -d`を実行します。
+
+動画送信を有効にする場合は、フラグを作成して`media`プロファイルを起動します。
+
+```sh
+docker compose run --rm enable-video
+docker compose --profile media up -d
+```
+
+通話を使う場合は、自分で用意した`libamp.so`を`docker-data/eas1/libamp.so`へ置き、`calls`プロファイルを起動します。EAS1ヘルパー、QEMU、UDP 19000／20000の公開もComposeが管理します。
+
+```sh
+docker compose --profile calls up -d
+```
+
+Skyglowを別のCompose構成または母艦上で動かす場合は、`docker-data/config/line-legacy.env`でサーバーURLとルーティングトークンを指定してから`push`プロファイルを起動します。Docker Desktop上の母艦へ接続するURLには`host.docker.internal`を利用できます。
+
+```ini
+LINE_LEGACY_SKYGLOW_URL=http://host.docker.internal:3023/send
+LINE_LEGACY_SKYGLOW_ROUTING_KEYS=64文字の16進ルーティングトークン
+```
+
+```sh
+docker compose --profile push up -d
+```
+
+母艦のファイアウォールでは、iPhoneのあるLANからTCP 80、443、8081を許可します。通話を使う場合はUDP 19000、20000も許可してください。インターネット全体へは公開しないでください。
+
+### Ubuntuへ直接インストールする場合
+
+Dockerを使わず、Ubuntuのsystemdサービスとして直接動かす方法も引き続き利用できます。
+
+#### 自動セットアップ
 
 Ubuntuでは、母艦とiPhoneのLAN IPを指定すると、必要パッケージ、ファイル配置、Python／Node依存関係、LINEJS互換パッチ、TLS証明書、環境設定までをまとめて準備できます。指定したネットワーク項目以外の既存設定、証明書、ログイン情報は上書きしません。
 
@@ -71,7 +129,7 @@ sudo /opt/line-legacy/tools/doctor.sh
 
 以下は各段階を手動で行う場合の手順です。
 
-### 1. 必要なソフトを入れる
+#### 1. 必要なソフトを入れる
 
 ```sh
 sudo apt update
@@ -82,7 +140,7 @@ cd line-legacy
 
 Node.js 20以上を推奨します。`node --version`で確認し、Ubuntu付属版が古い場合はNode.jsの公式配布版を使ってください。
 
-### 2. ゲートウェイを配置する
+#### 2. ゲートウェイを配置する
 
 ```sh
 sudo ./tools/install-files.sh
@@ -94,7 +152,7 @@ sudo /opt/line-legacy/tools/patch-linejs.sh
 
 `install-files.sh`は専用ユーザー`linelegacy`、実行ファイル、systemdユニット、Apacheの80番転送設定を用意します。この時点ではサービスは起動しません。`patch-linejs.sh`は通話、通話応答のトランザクションID、音声メッセージの長さをまとめて修正します。`npm install`の後に1回実行してください。
 
-### 3. TLS証明書を作る
+#### 3. TLS証明書を作る
 
 ```sh
 sudo openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 3650 \
@@ -109,7 +167,7 @@ sudo openssl x509 -in /etc/line-legacy/server.crt -noout -fingerprint -sha256
 
 最後に出る`SHA256 Fingerprint=...`の値を控えます。コロン付きのままTweakに入力できます。
 
-### 4. 環境のアドレスを設定する
+#### 4. 環境のアドレスを設定する
 
 ```sh
 sudo nano /etc/line-legacy/line-legacy.env
@@ -137,7 +195,7 @@ LINE_LEGACY_PHONE=+81...
 
 `LINE_LEGACY_PHONE`はE.164形式で入力します。`SELF_MID`は初回ログイン時に作られる`bridge_identity.json`から取得するため、通常は空欄のままで構いません。
 
-### 5. LINEアカウントへQRログインする
+#### 5. LINEアカウントへQRログインする
 
 ```sh
 sudo -u linelegacy env \
@@ -150,7 +208,7 @@ sudo -u linelegacy env \
 
 `authtoken.txt`と`<device>-storage.json`は、必ず同じログインで生成された組み合わせのまま使ってください。別のものを混ぜると、他端末のLetter Sealingに影響することがあります。通常は`ALLOW_E2EE_REGISTER=1`を付けません。
 
-### 6. 起動する
+#### 6. 起動する
 
 ```sh
 sudo systemctl enable --now line-legacy.target
@@ -167,7 +225,7 @@ sudo systemctl enable --now line-legacy-video.service
 
 ファイアウォールを使っている場合は、iPhoneのあるLANからTCP 80、443、8081への接続を許可します。インターネット全体へは公開しないでください。
 
-### 7. iPhoneにTweakを設定する
+#### 7. iPhoneにTweakを設定する
 
 [Releases](https://github.com/shima0625/line-legacy/releases)のLINEBridgeパッケージを、脱獄済みのiOS 4.3以降のarmv7端末へインストールします。この1パッケージがiOS 4.3以降に対応します。
 
@@ -181,6 +239,14 @@ sudo systemctl enable --now line-legacy-video.service
 
 ## うまく動かないとき
 
+Docker Compose構成では、最初に診断とログを確認します。
+
+```sh
+docker compose run --rm doctor
+docker compose ps
+docker compose logs --tail=100
+```
+
 - **接続テストが失敗する**: 母艦のIP、TCP 8081のファイアウォール、`line-legacy-cdn.service`の状態を確認します。
 - **LINEが接続エラーになる**: フィンガープリント、TCP 80/443、`line-legacy-legy.service`の状態を確認します。
 - **認証エラーが出る**: `journalctl -u line-legacy-linejs-bridge.service -n 100 --no-pager`を確認し、必要なら手順5のQRログインをやり直します。
@@ -193,7 +259,7 @@ sudo systemctl --failed
 sudo journalctl -u line-legacy-legy.service -u line-legacy-linejs-bridge.service -n 100 --no-pager
 ```
 
-Python／Node部分はWindowsやmacOSでも手動起動できますが、同梱のインストーラと自動起動設定はUbuntu/systemd向けです。
+Docker Compose構成はWindows、macOS、Linuxで共通です。`tools/setup.sh`とsystemdユニットを使う直接インストールだけがUbuntu／Debian向けです。
 
 ## 通話とEAS1コーデックヘルパー
 

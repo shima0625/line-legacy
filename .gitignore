@@ -52,6 +52,7 @@ eas1-helper/eas1_helper
 *.pyc
 __pycache__/
 node_modules/
+docker-data/
 
 # Backups and editor files
 *.bak

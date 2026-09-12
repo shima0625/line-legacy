@@ -21,7 +21,8 @@ _MAX_RESPONSE = 4 * 1024 * 1024
 _MAX_TEXT_CHARS = 10000
 _HOME_CHANNEL_ID = "1341209850"
 _TIMELINE_CHANNEL_ID = "1341209950"
-_TIMELINE_PICTURES = os.path.join(os.path.dirname(__file__), "timeline_pictures.json")
+_STATE_DIR = os.environ.get("ARTIFACTS_DIR") or os.environ.get("LINE_LEGACY_HOME") or os.path.dirname(__file__)
+_TIMELINE_PICTURES = os.path.join(_STATE_DIR, "timeline_pictures.json")
 _INCLUDE_RECOMMENDED = os.environ.get("TIMELINE_INCLUDE_RECOMMENDED", "0") == "1"
 
 
@@ -487,7 +488,7 @@ def _post_get(g, path, primary_token):
     return _json(0, "success", post)
 
 
-_AUTOOPEN_PATH = os.path.join(os.path.dirname(__file__), "timeline_autoopen.json")
+_AUTOOPEN_PATH = os.path.join(_STATE_DIR, "timeline_autoopen.json")
 
 
 def _autoopen(g, path, headers, body, update):
@@ -520,8 +521,7 @@ def _autoopen(g, path, headers, body, update):
     return _json(0, "success", {"autoOpen": stored})
 
 
-_CONTACT_LISTS_PATH = os.path.join(
-    os.path.dirname(__file__), "timeline_contact_lists.json")
+_CONTACT_LISTS_PATH = os.path.join(_STATE_DIR, "timeline_contact_lists.json")
 
 
 def _contact_list(g, path, headers, body, name, add=None):

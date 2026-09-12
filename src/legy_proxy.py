@@ -1422,7 +1422,7 @@ def build_active_purchases(name, seqid):
 
 
 _PRODUCT_META = {}          # packageId -> productInfo.meta(dict)
-_STICKER_META_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sticker_meta.json")
+_STICKER_META_FILE = os.path.join(_ARTIFACTS, "sticker_meta.json")
 _STICKER_META_DISK = None
 
 

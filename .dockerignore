@@ -1,0 +1,14 @@
+.git
+.gitignore
+docker-data
+node_modules
+**/__pycache__
+*.pyc
+*.log
+*.deb
+*.dylib
+*.so
+*.apk
+*.ipa
+tweak/.theos
+tweak/packages

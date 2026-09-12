@@ -119,6 +119,16 @@ def message_alert(record):
 
 
 def line_routing_keys():
+    configured = os.environ.get("LINE_LEGACY_SKYGLOW_ROUTING_KEYS", "")
+    if configured:
+        values = []
+        for value in configured.split(","):
+            value = value.strip().lower()
+            if re.fullmatch(r"[0-9a-f]{64}", value) and value not in values:
+                values.append(value)
+        if not values:
+            raise RuntimeError("LINE_LEGACY_SKYGLOW_ROUTING_KEYS is invalid")
+        return values
     sql = (
         "select encode(routing_token,'hex') from notification_tokens "
         "where bundle_id='jp.naver.line' and is_valid=true "

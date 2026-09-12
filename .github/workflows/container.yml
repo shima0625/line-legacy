@@ -1,0 +1,40 @@
+name: Container checks
+
+on:
+  push:
+    paths:
+      - .github/workflows/container.yml
+      - .dockerignore
+      - Dockerfile
+      - compose.yaml
+      - docker/**
+      - src/**
+      - patches/**
+      - tools/doctor.sh
+      - .env.example
+  pull_request:
+    paths:
+      - .github/workflows/container.yml
+      - .dockerignore
+      - Dockerfile
+      - compose.yaml
+      - docker/**
+      - src/**
+      - patches/**
+      - tools/doctor.sh
+      - .env.example
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Compose model
+        run: docker compose config --quiet
+      - name: Build portable gateway image
+        run: docker build --tag line-legacy:test .
+      - name: Build optional EAS1 image
+        run: docker build --file docker/eas1.Dockerfile --tag line-legacy-eas1:test .
