@@ -245,13 +245,14 @@ if [ "$files_only" -eq 0 ]; then
       fi
     done
     if has systemctl && { unit_active line-legacy-call.service || unit_enabled line-legacy-call.service; }; then
-      for port in 19000 20000; do
-        if port_listening udp "$port"; then
-          pass "UDP $port is listening"
-        else
-          warn "UDP $port is not listening while call support is enabled"
-        fi
-      done
+      # 待受は 19000 だけ。メディア用(既定 20000)は legacy_call_gateway.mjs が
+      # 通話ごとに bind するので、通話していない間は開いていないのが正常。
+      # ファイアウォールでは両方を通しておく必要がある(READMEを参照)。
+      if port_listening udp 19000; then
+        pass "UDP 19000 is listening"
+      else
+        warn "UDP 19000 is not listening while call support is enabled"
+      fi
     fi
   else
     warn "ss is unavailable; listening ports were not checked"
