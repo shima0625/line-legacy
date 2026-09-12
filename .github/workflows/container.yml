@@ -38,3 +38,29 @@ jobs:
         run: docker build --tag line-legacy:test .
       - name: Build optional EAS1 image
         run: docker build --file docker/eas1.Dockerfile --tag line-legacy-eas1:test .
+
+      # 組み上がるだけでは足りない。cdn の健全性確認が通らないと gateway が
+      # service_healthy で待ち続け、`docker compose up` が完走しない。
+      # 一度この状態のまま公開したので、起動まで見る。
+      - name: Start the content gateway and wait for it to become healthy
+        run: |
+          set -eu
+          docker compose up --detach cdn
+          container=$(docker compose ps --quiet cdn)
+          for attempt in $(seq 1 30); do
+            status=$(docker inspect --format '{{.State.Health.Status}}' "$container")
+            echo "attempt ${attempt}: ${status}"
+            case "$status" in
+              healthy) exit 0 ;;
+              unhealthy) break ;;
+            esac
+            sleep 5
+          done
+          echo "::error::the cdn service never reported healthy"
+          docker inspect --format '{{json .State.Health}}' "$container" || true
+          docker compose logs cdn || true
+          exit 1
+
+      - name: Stop the stack
+        if: always()
+        run: docker compose down --volumes --remove-orphans
