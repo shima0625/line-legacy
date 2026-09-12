@@ -816,3 +816,22 @@ diff -u -r a/client/features/call/planet/transport.js b/client/features/call/pla
 -//# sourceMappingURL=transport.js.map
 \ No newline at end of file
 +//# sourceMappingURL=transport.js.map
+--- a/base/obs/mod.js
++++ b/base/obs/mod.js
+@@ -185,7 +185,7 @@
+     return response.blob();
+   }
+   async uploadMediaByE2EE(options) {
+-    const { data, oType, to, filename, preview } = options;
++    const { data, oType, to, filename, preview, metadata } = options;
+     const typeSet = {
+       "image": [
+         "emi",
+@@ -264,6 +264,7 @@
+       chunks,
+       contentType: contentType,
+       contentMetadata: {
++        ...metadata ?? {},
+         SID: obsNamespace,
+         OID: objId,
+         FILE_SIZE: edata.size.toString(),
