@@ -1,0 +1,5 @@
+# Python dependencies for the compatibility gateway.
+# Only the legacy Home message box handler needs these; everything else in
+# src/*.py uses the standard library.
+akad==0.11.1
+thrift==0.24.0

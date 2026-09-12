@@ -1,0 +1,20 @@
+[Unit]
+Description=LINE Legacy linejs account bridge
+After=network-online.target line-legacy-legy.service
+Wants=network-online.target line-legacy-legy.service
+StartLimitIntervalSec=300
+StartLimitBurst=4
+
+[Service]
+Type=simple
+User=linelegacy
+Group=linelegacy
+WorkingDirectory=/opt/line-legacy/linejs-bridge
+EnvironmentFile=-/etc/line-legacy/line-legacy.env
+ExecStart=/usr/bin/node /opt/line-legacy/linejs-bridge/bridge_worker.mjs
+Restart=always
+RestartSec=15
+TimeoutStopSec=25
+
+[Install]
+WantedBy=line-legacy.target

@@ -1,0 +1,14 @@
+[Unit]
+Description=Refresh LINE Legacy notices from the official LINE notice board (notice.line.me)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=linelegacy
+Group=linelegacy
+WorkingDirectory=/opt/line-legacy
+EnvironmentFile=-/etc/line-legacy/line-legacy.env
+ExecStart=/usr/bin/python3 /opt/line-legacy/refresh_official_notices.py
+NoNewPrivileges=true
+PrivateTmp=true

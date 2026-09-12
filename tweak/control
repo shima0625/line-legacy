@@ -1,0 +1,11 @@
+Package: com.shima0625.linebridge
+Name: LINE Bridge
+Version: 0.1.0
+Architecture: iphoneos-arm
+Description: Routes legacy LINE endpoints to a user-selected compatibility bridge.
+Maintainer: shima0625
+Author: shima0625
+Section: Tweaks
+Depends: mobilesubstrate, preferenceloader
+Conflicts: jp.shima.linebridge, io.github.linelegacy.bridge
+Replaces: jp.shima.linebridge, io.github.linelegacy.bridge

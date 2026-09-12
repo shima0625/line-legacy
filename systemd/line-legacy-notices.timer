@@ -1,0 +1,11 @@
+[Unit]
+Description=Periodically refresh LINE Legacy official notice metadata
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=6h
+RandomizedDelaySec=10min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,818 @@
+diff -u -r a/client/features/call/andromeda.js b/client/features/call/andromeda.js
+--- a/client/features/call/andromeda.js	2026-09-12 20:19:00.263610592 +0900
++++ b/client/features/call/andromeda.js	2026-09-12 20:19:00.283610288 +0900
+@@ -156,6 +156,7 @@
+       body: ""
+     });
+     if (opts.ringMs) await new Promise((r)=>setTimeout(r, opts.ringMs));
++    if (opts.waitForAccept) await opts.waitForAccept;
+     // Parse offer SDP, build answer
+     const offer = parseSdp(invite.body);
+     const audio = offer.media.find((m)=>m.type === "audio");
+@@ -177,7 +178,9 @@
+     const localKey = new Uint8Array(SRTP_KEYING_LEN);
+     crypto.getRandomValues(localKey);
+     const localHost = opts.localHost ?? "0.0.0.0";
+-    const localPort = opts.localPort ?? 0;
++    const bound = this.#sock?.address();
++    const boundPort = typeof bound === "object" ? bound.port : 0;
++    const localPort = opts.localPort ?? boundPort;
+     const answerSdp = buildAudioOffer({
+       host: localHost,
+       port: localPort,
+@@ -523,4 +526,4 @@
+   new Uint8Array(ab).set(u);
+   return ab;
+ }
+-//# sourceMappingURL=andromeda.js.map
+\ No newline at end of file
++//# sourceMappingURL=andromeda.js.map
+diff -u -r a/client/features/call/planet/schema.js b/client/features/call/planet/schema.js
+--- a/client/features/call/planet/schema.js	2026-09-12 20:19:00.271610470 +0900
++++ b/client/features/call/planet/schema.js	2026-09-12 20:19:00.291610167 +0900
+@@ -255,7 +255,7 @@
+  * `"AUDIO"`. It advertises audio, video, and data channels plus two security
+  * blobs. Dynamic cryptographic material is supplied by the caller so tests can
+  * be deterministic.
+- */ export function packNativeSetupOffer(material) {
++ */ export function packNativeSetupOffer(material, opts = {}) {
+   if (material.mediaPubKey.length !== 33) {
+     throw new Error("packNativeSetupOffer: mediaPubKey must be 33 bytes");
+   }
+@@ -265,21 +265,32 @@
+   if (material.mediaSecret.length !== 30) {
+     throw new Error("packNativeSetupOffer: mediaSecret must be 30 bytes");
+   }
+-  const audioPath = packOfferPath(96, 101, 201);
+-  const videoPath = packOfferPath(97, 111, 211);
+-  const dataPath = packOfferPath(98, 121, 221);
++  // Native one-to-one calls use odd stream IDs in the initiator offer and
++  // even stream IDs in the responder answer.  Reusing the initiator IDs in an
++  // answer makes both peers transmit the same SSRC and the caller suppresses
++  // the returned stream as its own loopback.
++  const streamOffset = opts.responder ? 1 : 0;
++  const audioRtpPort = 101 + streamOffset;
++  const audioRtcpId = 201 + streamOffset;
++  const videoRtpPort = 111 + streamOffset;
++  const videoRtcpId = 211 + streamOffset;
++  const dataRtpPort = 121 + streamOffset;
++  const dataRtcpId = 221 + streamOffset;
++  const audioPath = packOfferPath(96, audioRtpPort, audioRtcpId);
++  const videoPath = packOfferPath(97, videoRtpPort, videoRtcpId);
++  const dataPath = packOfferPath(98, dataRtpPort, dataRtcpId);
+   const audio = packAudioVideoOffer("A", packOfferCodec("A", {
+     enabled: 1,
+     bitrate: 32,
+     kind: 1
+-  }), audioPath, 101, 201);
++  }), audioPath, audioRtpPort, audioRtcpId);
+   const video = packAudioVideoOffer("V", packOfferCodec("V", {
+     enabled: 0,
+     bitrate: 800,
+     fps: 24,
+     profile: 2,
+     kind: 2
+-  }), videoPath, 111, 211);
++  }), videoPath, videoRtpPort, videoRtcpId);
+   const data = packDataOffer(packOfferCodec("D", {
+     enabled: 1,
+     bitrate: 2000,
+@@ -677,6 +688,28 @@
+   if (r.data) emitBytes(b, 5, r.data);
+   return finalize(b);
+ }
++function packMediaCandAddr(r) {
++  const b = {
++    bytes: []
++  };
++  if (r.type !== undefined) emitEnum(b, 1, r.type);
++  if (r.addr) emitMessage(b, 2, packPlanetAddr(r.addr));
++  return finalize(b);
++}
++export function packMcJoinReq(r) {
++  const b = {
++    bytes: []
++  };
++  if (r.type !== undefined) emitEnum(b, 1, r.type);
++  if (r.desc !== undefined) emitString(b, 2, r.desc);
++  if (r.mqAddr) emitMessage(b, 3, r.mqAddr);
++  if (r.bridgeInfo) emitMessage(b, 4, r.bridgeInfo);
++  if (r.publicKey) emitBytes(b, 5, r.publicKey);
++  for (const candidate of r.candidates ?? []) {
++    emitMessage(b, 6, packMediaCandAddr(candidate));
++  }
++  return finalize(b);
++}
+ export function decodeMcDataRsp(bytes) {
+   const fields = decodeFields(bytes);
+   return {
+@@ -1433,4 +1466,4 @@
+   }
+   return decoded;
+ }
+-//# sourceMappingURL=schema.js.map
+\ No newline at end of file
++//# sourceMappingURL=schema.js.map
+diff -u -r a/client/features/call/planet/transport.js b/client/features/call/planet/transport.js
+--- a/client/features/call/planet/transport.js	2026-09-12 20:19:00.279610349 +0900
++++ b/client/features/call/planet/transport.js	2026-09-12 20:19:00.299610045 +0900
+@@ -15,7 +15,7 @@
+  */ import { Buffer } from "node:buffer";
+ import { makeChunkHdr, parseFrameHeader } from "./framing.js";
+ import { aesCtrDecrypt, aesCtrEncrypt, buildDirectionLabel, buildPlanetCtrIv, decodeMpKey, derivePlanetMediaKeyingVariants, derivePlanetMediaStreamKeying, ecdh, generateEphemeralKeypair, hmacTag, newSessionId, planetHkdfStage1, planetHkdfStage2, sha256, tagEquals } from "./crypto.js";
+-import { CC_MSG, decodeCcConnReq, decodeCcInfoReq, decodeCcParticipateRsp, decodeCcRelReq, decodeCcSetupRsp, decodeFields, decodeMcDataReq, decodeNativeSetupOffer, decodePlanetAddr, decodePlanetMsg, encodeVarint, extractRmtNonceFromReply, MC_MSG, packBepiChannelOpen, packCcConnRsp, packCcInfoReq, packCcInfoRsp, packCcParticipateReq, packCcRelReq, packCcSetupReq, packKeepaliveReq, packMcChangeRsp, packMcCheckRpt, packMcDataReq, packMcDataRsp, packMcDataSessionPayload, packMcJoinRsp, packNativeGroupParticipateOffer, packNativeSetupOffer, packPlanetCcMsg, packPlanetFeatureRegister, packPlanetMcMsg, packPlanetMsg, packPlanetScMsgKaReq, packPlanetUeInfo, packPlanetUserAgent, packStrmSpec, WireType, wrapCcMsg, wrapMcMsg } from "./schema.js";
++import { CC_MSG, decodeCcConnReq, decodeCcConnRsp, decodeCcInfoReq, decodeCcParticipateRsp, decodeCcRelReq, decodeCcSetupRsp, decodeFields, decodeMcDataReq, decodeNativeSetupOffer, decodePlanetAddr, decodePlanetMsg, encodeVarint, extractRmtNonceFromReply, MC_MSG, packBepiChannelOpen, packCcConnReq, packCcConnRsp, packCcInfoReq, packCcInfoRsp, packCcParticipateReq, packCcRelReq, packCcSetupReq, packKeepaliveReq, packMcChangeRsp, packMcCheckRpt, packMcDataReq, packMcDataRsp, packMcDataSessionPayload, packMcJoinReq, packMcJoinRsp, packNativeGroupParticipateOffer, packNativeSetupOffer, packPlanetCcMsg, packPlanetFeatureRegister, packPlanetMcMsg, packPlanetMsg, packPlanetScMsgKaReq, packPlanetUeInfo, packPlanetUserAgent, packStrmSpec, WireType, wrapCcMsg, wrapMcMsg } from "./schema.js";
+ import { buildRtp, deriveSrtpContext, parseRtp, srtpDecrypt, srtpEncrypt } from "../srtp.js";
+ const MEDIA_KEY_SELECTIONS = {
+   current: {
+@@ -90,8 +90,10 @@
+ const BOOTSTRAP_CIPHER_OFFSET = HEADER_LEN + BOOTSTRAP_PREFIX_LEN + BOOTSTRAP_SEC_HEADER_LEN;
+ const CASSINI_MSG_ID_CC_BASE = 0x2140;
+ const CASSINI_MSG_ID_SETUP_REQ = 0x2141;
++const CASSINI_MSG_ID_VERIFY_REQ = 0x2142;
+ const CASSINI_MSG_ID_REL_REQ = 0x2145;
+ const CASSINI_MSG_ID_GROUP_PARTICIPATE_REQ = 0x214e;
++const CASSINI_MSG_ID_MC_JOIN_REQ = 0x3185;
+ const CASSINI_MSG_ID_MC_JOIN_RSP = 0x3285;
+ const CASSINI_MSG_ID_MC_CHANGE_RSP = 0x3286;
+ const CASSINI_MSG_ID_MC_CHECK_RPT = 0x3287;
+@@ -425,6 +427,7 @@
+   ]));
+ }
+ function ccMsgId(bodyTag) {
++  if (bodyTag === CC_MSG.CONN_REQ) return 0x2144;
+   if (bodyTag === CC_MSG.CONN_RSP) return 0x2244;
+   if (bodyTag === CC_MSG.REL_REQ) return CASSINI_MSG_ID_REL_REQ;
+   if (bodyTag === CC_MSG.INFO_REQ) return 0x2147;
+@@ -473,7 +476,16 @@
+     manufacturer: "google"
+   };
+ }
+-function defaultOneToOneStrmSpec() {
++function defaultOneToOneStrmSpec(opts = {}) {
++  // The initiator and responder advertise mirrored media-controller stream
++  // IDs.  A captured native responder DATA_REQ uses RX 202/212/222 and TX
++  // 102/112; the initiator uses the opposite mapping.
++  const responder = opts.responder === true;
++  const rxAudioSsrc = responder ? 202 : 102;
++  const rxVideoSsrc = responder ? 212 : 112;
++  const rxDataSsrc = responder ? 222 : 122;
++  const txAudioSsrc = responder ? 102 : 202;
++  const txVideoSsrc = responder ? 112 : 212;
+   const state = {
+     paused: false,
+     code: 0
+@@ -481,7 +493,7 @@
+   return packStrmSpec({
+     strms: [
+       {
+-        ssrc: 102,
++        ssrc: rxAudioSsrc,
+         bitrate: {
+           target: 32
+         },
+@@ -499,7 +511,7 @@
+         fecLossThre: []
+       },
+       {
+-        ssrc: 112,
++        ssrc: rxVideoSsrc,
+         bitrate: {
+           min: 100,
+           max: 1200,
+@@ -516,7 +528,7 @@
+         ]
+       },
+       {
+-        ssrc: 122,
++        ssrc: rxDataSsrc,
+         bitrate: {
+           max: 2000
+         },
+@@ -532,7 +544,7 @@
+     fbOn: true,
+     txStrms: [
+       {
+-        ssrc: 202,
++        ssrc: txAudioSsrc,
+         state,
+         retx: {
+           reqdOn: true,
+@@ -540,7 +552,7 @@
+         }
+       },
+       {
+-        ssrc: 212,
++        ssrc: txVideoSsrc,
+         state,
+         retx: {
+           reqdOn: false
+@@ -555,8 +567,8 @@
+     }
+   });
+ }
+-function defaultOneToOneDataSessionPayload() {
+-  return packMcDataSessionPayload(defaultOneToOneStrmSpec());
++function defaultOneToOneDataSessionPayload(opts = {}) {
++  return packMcDataSessionPayload(defaultOneToOneStrmSpec(opts));
+ }
+ function defaultSetupFeatures() {
+   return [
+@@ -689,7 +701,7 @@
+   const s = new TextDecoder().decode(v);
+   return /^[\x20-\x7e]{0,80}$/.test(s) ? s : undefined;
+ }
+-function defaultLocalMediaOffer() {
++function defaultLocalMediaOffer(opts = {}) {
+   const media = generateEphemeralKeypair();
+   const material = {
+     mediaPubKey: media.publicKey,
+@@ -703,7 +715,7 @@
+       privateKey: copyBytes(media.privateKey)
+     },
+     material: cloneMediaOfferMaterial(material),
+-    offer: packNativeSetupOffer(material)
++    offer: packNativeSetupOffer(material, opts)
+   };
+ }
+ function defaultSetupCredential(route, initiator, responder, cid) {
+@@ -717,6 +729,60 @@
+     new TextEncoder().encode(cid)
+   ]));
+ }
++function packProtoField(tag, wireType, value) {
++  const key = encodeVarint((tag << 3) | wireType);
++  if (wireType === 2) {
++    return concatBytes([key, encodeVarint(value.length), value]);
++  }
++  return concatBytes([key, encodeVarint(value)]);
++}
++function packCcVerifyReq(r) {
++  const text = (tag, value)=>value === undefined ? [] : [packProtoField(tag, 2, new TextEncoder().encode(value))];
++  const bytes = (tag, value)=>value === undefined ? [] : [packProtoField(tag, 2, value)];
++  const number = (tag, value)=>value === undefined ? [] : [packProtoField(tag, 0, value)];
++  return concatBytes([
++    ...text(1, r.initiator),
++    ...text(2, r.responder),
++    ...text(3, r.iZone),
++    ...text(4, r.rZone),
++    ...bytes(5, r.ua),
++    ...text(6, r.devId),
++    ...number(7, r.commTypeFlags),
++    ...(r.capas ?? []).map((value)=>packProtoField(8, 0, value)),
++    ...bytes(9, r.credential),
++    ...text(10, r.svcKey),
++    ...number(11, r.crt ? 1 : 0),
++    ...number(12, r.netType),
++    ...text(21, r.stid),
++    ...text(51, r.svcId),
++    ...text(52, r.tgtSvcId),
++    ...number(105, r.pathCheck ? 1 : 0)
++  ]);
++}
++function decodeCcVerifyRsp(bytes) {
++  const fields = decodeFields(bytes);
++  const fieldBytes = (tag)=>{
++    const value = fields.find((field)=>field.tag === tag)?.value;
++    return value instanceof Uint8Array ? value : undefined;
++  };
++  return {
++    result: fieldNumber(fields, 1),
++    relCode: fieldNumber(fields, 2),
++    relPhrase: fieldText(fields, 3),
++    cfgs: fieldText(fields, 4),
++    oCapas: fields.filter((field)=>field.tag === 5 && typeof field.value === "bigint").map((field)=>Number(field.value)),
++    offer: fieldBytes(6),
++    releaser: fieldText(fields, 8),
++    compCfgs: fieldBytes(9),
++    compCfgsType: fieldNumber(fields, 10),
++    oUeData: fieldBytes(11),
++    oUeDataCompType: fieldNumber(fields, 12),
++    oFeatures: fields.filter((field)=>field.tag === 13 && field.value instanceof Uint8Array).map((field)=>field.value),
++    iDevId: fieldText(fields, 101),
++    aliveRptInterval: fieldNumber(fields, 102),
++    stops: fieldText(fields, 103)
++  };
++}
+ function defaultGroupParticipateCredential(route, participant, roomId, cid) {
+   if (!route.groupToken) throw new Error("GroupCallRoute.token missing");
+   return sha256(concatBytes([
+@@ -796,8 +862,12 @@
+   #groupRtcpSent = false;
+   #remoteCcChanId = 0n;
+   #remoteMediaChanId = 0n;
++  #incomingVerified = false;
++  #incomingVerifyOffer;
++  #incomingJoinSent = false;
+   #targetMid;
+   #closed = true;
++  #remoteReleased = false;
+   #autoConnRspDuplicates = false;
+   #connRspDuplicateInFlight = false;
+   // Per-msg sequence + protocol state
+@@ -863,7 +933,11 @@
+     this.#groupRtcpSent = false;
+     this.#remoteCcChanId = 0n;
+     this.#remoteMediaChanId = 0n;
++    this.#incomingVerified = false;
++    this.#incomingVerifyOffer = undefined;
++    this.#incomingJoinSent = false;
+     this.#targetMid = undefined;
++    this.#remoteReleased = false;
+     this.#autoConnRspDuplicates = false;
+     this.#connRspDuplicateInFlight = false;
+     this.#localMediaOffer = undefined;
+@@ -1012,13 +1086,32 @@
+               relPhrase: fieldText(mcFields, 3),
+               relPhraseLen: mcFields.find((f)=>f.tag === 3)?.value?.length
+             });
++            if (!this.#incomingJoinSent) {
++              void this.#sendMcJoinReq().catch((e)=>this.#debug({
++                type: "mc_join_req_failed",
++                reason: String(e && e.message || e)
++              }));
++            }
+           }
+           if (msg.mc.bodyTag === MC_MSG.DATA_REQ) {
++            this.#debug({ type: "mc_datareq_raw", cid: String(msg.mc?.hdr?.cid ?? ""),
++              srcChanId: String(msg.mc?.hdr?.srcChanId ?? ""), dstChanId: String(msg.mc?.hdr?.dstChanId ?? ""),
++              body: Buffer.from(msg.mc.bodyBytes).toString("hex") });
+             void this.#sendMcDataRsp(incoming).catch(()=>{});
+           }
+           if (msg.mc.bodyTag === MC_MSG.JOIN_REQ) {
+             void this.#sendMcJoinRsp(incoming).catch(()=>{});
+           }
++          if (msg.mc.bodyTag === MC_MSG.JOIN_RSP) {
++            this.#debug({
++              type: "mc_join_rsp",
++              result: fieldNumber(mcFields, 1),
++              relCode: fieldNumber(mcFields, 2),
++              relPhrase: fieldText(mcFields, 3)
++            });
++            void this.#sendBepiChannelOpen().catch(()=>{});
++            void this.#sendMcCheckRpt(incoming).catch(()=>{});
++          }
+           if (msg.mc.bodyTag === MC_MSG.CHANGE_REQ) {
+             void this.#sendMcChangeRsp(incoming).catch(()=>{});
+           }
+@@ -1053,6 +1146,10 @@
+               userRelCodeLen: relReq.userRelCode?.length,
+               roomDestroy: relReq.roomDestroy
+             });
++            if (!this.#remoteReleased) {
++              this.#remoteReleased = true;
++              this.#opts.onRemoteRelease?.(relReq);
++            }
+           } catch  {
+           // Keep processing even if a newer REL shape appears.
+           }
+@@ -1107,6 +1204,9 @@
+     return new Promise((resolve)=>this.#rtpWaiters.push(resolve));
+   }
+   async #decryptMediaRtp(wire) {
++    if (this.#opts.mediaPlaintext) {
++      return { rtp: wire, mode: "plaintext", switched: false };
++    }
+     if (!this.#srtpRecv) {
+       throw new Error("PlanetTransport.receive: media not established");
+     }
+@@ -1196,26 +1296,37 @@
+     out.set(this.#local.publicKey, label.length + this.#bootstrapSeed.length);
+     return out;
+   }
+-  #planetHdr(msgId = this.#msgIdCounter++) {
++  #planetHdr(msgId = this.#msgIdCounter++, echo) {
+     if (!this.#sessId) throw new Error("connect first");
+-    const tranId = new Uint8Array(16);
+-    crypto.getRandomValues(tranId);
++    let tranId;
++    let tranSeq;
++    if (echo?.tranId && echo.tranId.length === 16) {
++      // 応答は要求と同じトランザクションIDで返す。新しいIDを振ると相手は応答を
++      // 自分の要求と結び付けられず、要求を再送し続けてタイムアウトする。
++      tranId = echo.tranId;
++      tranSeq = echo.tranSeq ?? this.#tranSeq++;
++    } else {
++      tranId = new Uint8Array(16);
++      crypto.getRandomValues(tranId);
++      tranSeq = this.#tranSeq++;
++    }
+     return {
+       userId: this.#opts.localMid,
+       msgId,
+       sessId: this.#sessId,
+       tranId,
+-      tranSeq: this.#tranSeq++,
++      tranSeq,
+       locNonce: this.#locNonce,
+       rmtNonce: this.#rmtNonce
+     };
+   }
+   async #sendEnvelope(body, opts = {}) {
+-    const hdr = this.#planetHdr(opts.msgId);
++    const hdr = this.#planetHdr(opts.msgId, opts.echoHdr);
+     const planetMsg = packPlanetMsg(hdr, body);
+     this.#debug({
+       type: "send_planet_msg",
+       kind: body.kind,
++      tranIdEchoed: !!(opts.echoHdr?.tranId),
+       msgId: hdr.msgId,
+       sessIdBytes: hdr.sessId.length,
+       tranIdBytes: hdr.tranId.length,
+@@ -1378,6 +1489,109 @@
+   async invite(opts) {
+     return (await this.inviteDetailed(opts)).plaintext;
+   }
++  async verifyIncomingDetailed(opts) {
++    if (!this.#route || !this.#local) throw new Error("connect first");
++    this.#callUuid = opts.callId;
++    this.#targetMid = opts.from;
++    const verifyReq = packCcVerifyReq({
++      initiator: opts.from,
++      responder: this.#opts.localMid,
++      iZone: this.#route.iZone,
++      rZone: this.#route.rZone,
++      ua: packPlanetUserAgent(this.#opts.userAgent ?? defaultAndroidUserAgent(this.#opts.deviceInfo)),
++      devId: this.#opts.deviceId ?? randomBase64(32),
++      commTypeFlags: 1,
++      capas: this.#opts.capabilities ?? [1, 2, 3, 6, 7],
++      credential: defaultSetupCredential(this.#route, opts.from, this.#opts.localMid, opts.callId),
++      svcKey: this.#opts.serviceKey ?? "freecall.audio",
++      crt: false,
++      netType: 1,
++      stid: this.#route.stid,
++      pathCheck: false
++    });
++    const ccBody = wrapCcMsg(CC_MSG.VERIFY_REQ, verifyReq);
++    const ccMsg = packPlanetCcMsg({
++      cid: opts.callId,
++      srcChanId: this.#srcChanId,
++      dstChanId: 0n
++    }, ccBody);
++    this.#debug({ type: "incoming_verify_req", callIdLength: opts.callId.length, bodyBytes: verifyReq.length });
++    await this.#sendEnvelope({ kind: "cc", data: ccMsg }, { bootstrap: true, msgId: CASSINI_MSG_ID_VERIFY_REQ });
++    this.#setupSent = true;
++    const reply = await this.#waitForCc(CC_MSG.VERIFY_RSP, opts.timeoutMs ?? this.#opts.timeoutMs ?? 10000);
++    const bodyBytes = reply.message.cc?.bodyBytes;
++    if (!bodyBytes) throw new Error("PLANET verify_rsp missing body");
++    const verifyRsp = decodeCcVerifyRsp(bodyBytes);
++    this.#remoteCcChanId = reply.message.cc?.hdr?.srcChanId ?? 0n;
++    this.#incomingVerifyOffer = verifyRsp.offer;
++    this.#incomingVerified = (verifyRsp.result === undefined || verifyRsp.result === 0) && this.#remoteCcChanId !== 0n;
++    this.#debug({
++      type: "incoming_verify_rsp",
++      result: verifyRsp.result,
++      relCode: verifyRsp.relCode,
++      relPhrase: verifyRsp.relPhrase,
++      remoteChanId: this.#remoteCcChanId.toString(),
++      offerBytes: verifyRsp.offer?.length
++    });
++    if (this.#incomingVerified) {
++      await this.#sendKeepalive();
++      this.#startKeepalive(verifyRsp.aliveRptInterval);
++    }
++    return { plaintext: reply.plaintext, message: reply.message, verifyRsp };
++  }
++  async answerIncomingDetailed(opts) {
++    if (!this.#route || !this.#local) throw new Error("connect first");
++    this.#callUuid = opts.callId;
++    this.#targetMid = opts.from;
++    if (!this.#incomingVerified) {
++      const verified = await this.verifyIncomingDetailed(opts);
++      if (verified.verifyRsp.result !== undefined && verified.verifyRsp.result !== 0) {
++        throw new Error(`PLANET verify_rsp rejected relCode=${verified.verifyRsp.relCode ?? "none"} relPhrase=${verified.verifyRsp.relPhrase ?? "none"}`);
++      }
++    }
++    if (this.#remoteCcChanId === 0n) throw new Error("PLANET verify_rsp did not provide caller channel id");
++    const localMediaOffer = defaultLocalMediaOffer({ responder: true });
++    this.#localMediaOffer = localMediaOffer;
++    const connReq = packCcConnReq({
++      answer: localMediaOffer.offer,
++      mChanId: this.#localMediaChanId,
++      netType: 1,
++      unavailToSec: 120,
++      oCapas: [1, 2, 3],
++      features: this.#opts.features ?? defaultSetupFeatures(),
++      ua: packPlanetUserAgent(this.#opts.userAgent ?? defaultAndroidUserAgent(this.#opts.deviceInfo)),
++      devId: this.#opts.deviceId ?? randomBase64(32)
++    });
++    const ccBody = wrapCcMsg(CC_MSG.CONN_REQ, connReq);
++    const sendRequest = async (dstChanId)=>{
++      const ccMsg = packPlanetCcMsg({ cid: opts.callId, srcChanId: this.#srcChanId, dstChanId }, ccBody);
++      this.#debug({ type: "incoming_conn_req", callIdLength: opts.callId.length, bodyBytes: connReq.length, dstChanId: dstChanId.toString(), bootstrap: false });
++      await this.#sendEnvelope({ kind: "cc", data: ccMsg }, { bootstrap: false, msgId: ccMsgId(CC_MSG.CONN_REQ) });
++    };
++    await sendRequest(this.#remoteCcChanId);
++    const reply = await this.#waitForCc(CC_MSG.CONN_RSP, opts.timeoutMs ?? this.#opts.timeoutMs ?? 10000);
++    const bodyBytes = reply.message.cc?.bodyBytes;
++    if (!bodyBytes) throw new Error("PLANET conn_rsp missing body");
++    const connRsp = decodeCcConnRsp(bodyBytes);
++    this.#remoteCcChanId = reply.message.cc?.hdr?.srcChanId ?? this.#remoteCcChanId;
++    this.#remoteMediaChanId = connRsp.mChanId ?? this.#remoteCcChanId;
++    let mediaReady = false;
++    if (connRsp.result === undefined || connRsp.result === 0) {
++      const peerOffer = tryDecodeNativeSetupOffer(this.#incomingVerifyOffer);
++      mediaReady = await this.#configureMedia(peerOffer, connRsp);
++      // 着信でも MC ハンドシェイクを起こす。発信(waitForAnswerDetailed)は conn_rsp 送出後に
++      // INFO_REQ(exchange_app_str_data)を送り、相手が MC JOIN_REQ/DATA_REQ を返してくる。
++      // 着信ではこれが無く MC 未確立で音声が正しいチャネルに乗らなかった。
++      try { await this.#sendExchangeAppStrDataInfoReq(reply, connRsp); }
++      catch (e) { this.#debug({ type: "info_req_skipped", reason: String(e && e.message || e) }); }
++      try { await this.#sendMcDataReq(); }
++      catch (e) { this.#debug({ type: "mc_data_req_skipped", reason: String(e && e.message || e) }); }
++      await this.#sendPinholeProbes();
++      await this.#sendKeepalive();
++      this.#startKeepalive(undefined);
++    }
++    return { plaintext: reply.plaintext, message: reply.message, connRsp, mediaReady };
++  }
+   async #sendParticipate(opts) {
+     if (!this.#route || !this.#local) throw new Error("connect first");
+     const route = this.#route;
+@@ -1677,12 +1891,48 @@
+     return this.waitForAnswerDetailed();
+   }
+   async #configureMedia(peerOffer, connReq) {
+-    if (!peerOffer) return false;
++    if (!peerOffer) { this.#debug({ type: "keydiag", stage: "no_peerOffer" }); return false; }
+     const local = this.#localMediaOffer;
+     const route = this.#route;
+     if (!local || !route) return false;
+     this.#mediaKeyCandidates = [];
+-    if (peerOffer.mediaPubKey && peerOffer.mediaKeyId !== undefined && peerOffer.mediaNonce) {
++    const __hex = (u) => u ? Buffer.from(u).toString("hex") : "";
++    this.__keyMat = {
++      localPriv: __hex(local.keypair.privateKey),
++      localPub: __hex(local.material.mediaPubKey),
++      localKeyId: local.material.mediaKeyId ?? null,
++      localNonce: __hex(local.material.mediaNonce),
++      localSecret: __hex(local.material.mediaSecret),
++      peerPub: __hex(peerOffer.mediaPubKey),
++      peerKeyId: peerOffer.mediaKeyId ?? null,
++      peerNonce: __hex(peerOffer.mediaNonce),
++      peerSecret: __hex(peerOffer.mediaSecret),
++      routePeerPub: __hex(this.#route && this.#route.peerPub)
++    };
++    this.__wireDumped = 0;
++    this.#debug({ type: "keydiag", stage: "peerOffer",
++      peerPub: peerOffer.mediaPubKey ? peerOffer.mediaPubKey.length : 0,
++      peerKeyId: peerOffer.mediaKeyId ?? null,
++      peerNonce: peerOffer.mediaNonce ? peerOffer.mediaNonce.length : 0,
++      peerSecret: peerOffer.mediaSecret ? peerOffer.mediaSecret.length : 0,
++      localPub: local.material.mediaPubKey ? local.material.mediaPubKey.length : 0,
++      localSecret: local.material.mediaSecret ? local.material.mediaSecret.length : 0,
++      peerPubHex: __hex(peerOffer.mediaPubKey),
++      routePeerPubHex: __hex(this.#route && this.#route.peerPub),
++      peerSecretHex: __hex(peerOffer.mediaSecret) });
++    // 着信では媒体ECDHに使う相手pubkeyが2系統ありうる: verify offer の pubkey と、
++    // push 通知由来の route.peerPub(mpkey)。実測で両者は別鍵で、mpkey が実際の媒体鍵。
++    // 両方から候補を作って auto 切替に選ばせる。
++    const __peerPubs = [];
++    if (peerOffer.mediaPubKey) __peerPubs.push({ pub: peerOffer.mediaPubKey, tag: "offer" });
++    if (this.#route && this.#route.peerPub && this.#route.peerPub.length === 33) {
++      const rp = Buffer.from(this.#route.peerPub).toString("hex");
++      if (!__peerPubs.some((e) => Buffer.from(e.pub).toString("hex") === rp)) {
++        __peerPubs.push({ pub: this.#route.peerPub, tag: "mpkey" });
++      }
++    }
++    for (const __pp of __peerPubs) {
++      if (peerOffer.mediaKeyId === undefined || !peerOffer.mediaNonce) break;
+       const keyInput = {
+         local: {
+           privateKey: local.keypair.privateKey,
+@@ -1691,7 +1941,7 @@
+           mediaNonce: local.material.mediaNonce
+         },
+         peer: {
+-          publicKey: peerOffer.mediaPubKey,
++          publicKey: __pp.pub,
+           mediaKeyId: peerOffer.mediaKeyId,
+           mediaNonce: peerOffer.mediaNonce
+         }
+@@ -1700,12 +1950,14 @@
+       for (const selection of Object.values(MEDIA_KEY_SELECTIONS)){
+         const sendKeying = variants.variants[selection.send];
+         const recvKeying = variants.variants[selection.recv];
++        const __sfx = __pp.tag === "offer" ? "" : ("/" + __pp.tag);
+         this.#mediaKeyCandidates.push({
+           ...selection,
++          mode: selection.mode + __sfx,
+           sendContext: await deriveSrtpContext(sendKeying),
+           recvContext: await deriveSrtpContext(recvKeying)
+         }, {
+-          mode: audioMediaKeyMode(selection.mode),
++          mode: audioMediaKeyMode(selection.mode) + __sfx,
+           send: `AUDIO/${selection.send}`,
+           recv: `AUDIO/${selection.recv}`,
+           sendContext: await deriveSrtpContext(derivePlanetMediaStreamKeying(sendKeying, "AUDIO")),
+@@ -1740,9 +1992,21 @@
+         recvContext: await deriveSrtpContext(derivePlanetMediaStreamKeying(peerOffer.mediaSecret, "AUDIO"))
+       });
+     }
++    this.#debug({ type: "keydiag", stage: "candidates", count: this.#mediaKeyCandidates.length,
++      modes: this.#mediaKeyCandidates.map((c) => c.mode).join(",") });
+     if (this.#mediaKeyCandidates.length === 0) return false;
+     const requestedMode = this.#opts.mediaKeyMode ?? (this.#groupJoined ? "audio-secret-sender" : "current");
+-    const initialMode = requestedMode === "auto" ? "current" : requestedMode;
++    // Mobile responders normally provide ECDH material and therefore have a
++    // `current` candidate.  Desktop LINE can instead answer with only the two
++    // 30-byte per-sender media secrets.  In that shape, start with our own
++    // sender secret and let the existing auto-decrypt path switch if needed.
++    const initialMode = requestedMode === "auto"
++      ? (this.#mediaKeyCandidates.some((candidate) => candidate.mode === "current")
++        ? "current"
++        : (this.#mediaKeyCandidates.some((candidate) => candidate.mode === "secret-sender")
++          ? "secret-sender"
++          : this.#mediaKeyCandidates[0].mode))
++      : requestedMode;
+     const initial = this.#mediaKeyCandidates.find((c)=>c.mode === initialMode);
+     if (!initial) return false;
+     this.#srtpSend = initial.sendContext;
+@@ -1774,7 +2038,9 @@
+       host: endpoint.host,
+       port: endpoint.port,
+       payloadType: audio?.rtpId ?? 96,
+-      ssrc: (this.#groupJoined ? this.#groupAudioSsrc : undefined) ?? audio?.rtcpId ?? audio?.rtpPort ?? randomU32(),
++      ssrc: (this.#groupJoined ? this.#groupAudioSsrc : undefined)
++        ?? (this.#incomingVerified ? 102 : undefined)
++        ?? audio?.rtcpId ?? audio?.rtpPort ?? randomU32(),
+       seq: randomIntInclusive(0, 0xffff),
+       timestamp: 0
+     };
+@@ -1822,7 +2088,8 @@
+       kind: "cc",
+       data: ccMsg
+     }, {
+-      msgId: ccMsgId(CC_MSG.CONN_RSP)
++      msgId: ccMsgId(CC_MSG.CONN_RSP),
++      echoHdr: request.message?.hdr
+     });
+   }
+   async #sendExchangeAppStrDataInfoReq(request, connReq) {
+@@ -1864,6 +2131,26 @@
+       type: "info_req_exchange_app_str_data"
+     });
+   }
++  // 着信では相手が MC DATA_REQ を送ってこない(発信では相手が送り、我々は RSP を返す)。
++  // 我々が参加側なので、発信の相手と同じ 1:1 DATA_REQ をこちらから送って媒体データ
++  // セッションを確立する。捕獲した実バイトと同じ {srcType:0,dstType:0,dispatchId:2,data}。
++  async #sendMcDataReq() {
++    const dataReq = packMcDataReq({
++      srcType: 0,
++      dstType: 0,
++      dispatchId: 2,
++      data: defaultOneToOneDataSessionPayload({ responder: true })
++    });
++    const mcBody = wrapMcMsg(MC_MSG.DATA_REQ, dataReq);
++    const mcMsg = packPlanetMcMsg({
++      cid: this.#callUuid ?? "mc-data-req",
++      srcChanId: this.#localMediaChanId,
++      dstChanId: this.#remoteMediaChanId
++    }, mcBody);
++    this.#debug({ type: "mc_data_req_sent", bodyBytes: dataReq.length,
++      dstChanIdBits: this.#remoteMediaChanId.toString(2).length });
++    await this.#sendEnvelope({ kind: "mc", data: mcMsg }, { msgId: CASSINI_MSG_ID_MC_DATA_REQ });
++  }
+   async #sendMcDataRsp(request) {
+     const bodyBytes = request.message.mc?.bodyBytes;
+     if (!bodyBytes) return;
+@@ -1890,7 +2177,55 @@
+       kind: "mc",
+       data: mcMsg
+     }, {
+-      msgId: CASSINI_MSG_ID_MC_DATA_RSP
++      msgId: CASSINI_MSG_ID_MC_DATA_RSP,
++      echoHdr: request.message?.hdr
++    });
++  }
++  async #sendMcJoinReq() {
++    if (this.#incomingJoinSent) return;
++    if (!this.#localMediaOffer?.material?.mediaPubKey) {
++      throw new Error("local media public key unavailable");
++    }
++    if (this.#remoteMediaChanId === 0n) {
++      throw new Error("remote media channel unavailable");
++    }
++    const socketAddress = this.#sock?.address?.();
++    const port = Number(socketAddress?.port ?? 0);
++    const configuredIp = String(this.#opts.mediaCandidateIp ?? "").trim();
++    const boundIp = String(socketAddress?.address ?? "").trim();
++    const ip = configuredIp || (!boundIp || boundIp === "0.0.0.0" || boundIp === "::" ? "" : boundIp);
++    const candidates = ip && port > 0 ? [{
++      type: 2, // MEDIA_CAND_ADDR__MCA_TYPE__LOCAL
++      addr: {
++        ver: ip.includes(":") ? 1 : 0,
++        trpt: 0, // UDP
++        ip,
++        port
++      }
++    }] : [];
++    const joinReq = packMcJoinReq({
++      type: 1, // native one-to-one JOIN uses SERVER
++      desc: "p2p",
++      publicKey: this.#localMediaOffer.material.mediaPubKey,
++      candidates
++    });
++    const mcBody = wrapMcMsg(MC_MSG.JOIN_REQ, joinReq);
++    const mcMsg = packPlanetMcMsg({
++      cid: this.#callUuid ?? "mc-join-req",
++      srcChanId: this.#localMediaChanId,
++      dstChanId: this.#remoteMediaChanId
++    }, mcBody);
++    this.#incomingJoinSent = true;
++    this.#debug({
++      type: "mc_join_req_sent",
++      bodyBytes: joinReq.length,
++      candidateCount: candidates.length,
++      candidateFamily: ip.includes(":") ? "ipv6" : "ipv4",
++      candidatePort: port,
++      dstChanIdBits: this.#remoteMediaChanId.toString(2).length
++    });
++    await this.#sendEnvelope({ kind: "mc", data: mcMsg }, {
++      msgId: CASSINI_MSG_ID_MC_JOIN_REQ
+     });
+   }
+   async #sendMcJoinRsp(request) {
+@@ -1911,7 +2246,8 @@
+       kind: "mc",
+       data: mcMsg
+     }, {
+-      msgId: CASSINI_MSG_ID_MC_JOIN_RSP
++      msgId: CASSINI_MSG_ID_MC_JOIN_RSP,
++      echoHdr: request.message?.hdr
+     });
+     void this.#sendBepiChannelOpen().catch(()=>{});
+     void this.#sendMcCheckRpt(request).catch(()=>{});
+@@ -1934,11 +2270,12 @@
+       kind: "mc",
+       data: mcMsg
+     }, {
+-      msgId: CASSINI_MSG_ID_MC_CHANGE_RSP
++      msgId: CASSINI_MSG_ID_MC_CHANGE_RSP,
++      echoHdr: request.message?.hdr
+     });
+   }
+   async #sendMcCheckRpt(request) {
+-    const rpt = packMcCheckRpt(defaultOneToOneStrmSpec());
++    const rpt = packMcCheckRpt(defaultOneToOneStrmSpec({ responder: this.#incomingVerified }));
+     const mcBody = wrapMcMsg(MC_MSG.CHECK_RPT, rpt);
+     const mcMsg = packPlanetMcMsg({
+       cid: request.message.mc?.hdr?.cid ?? this.#callUuid ?? "mc-check-rpt",
+@@ -2016,7 +2353,8 @@
+       kind: "cc",
+       data: ccMsg
+     }, {
+-      msgId: ccMsgId(CC_MSG.INFO_RSP)
++      msgId: ccMsgId(CC_MSG.INFO_RSP),
++      echoHdr: request.message?.hdr
+     });
+   }
+   #clearKeepalive() {
+@@ -2052,7 +2390,7 @@
+     this.#closed = true;
+     this.#clearKeepalive();
+     try {
+-      if (this.#setupSent && this.#route && (this.#sock || this.#opts.wireSend)) {
++      if (!this.#remoteReleased && this.#setupSent && this.#route && (this.#sock || this.#opts.wireSend)) {
+         const relBody = this.#groupJoined ? packCcRelReq({
+           relCode: 1,
+           releaser: "participant",
+@@ -2104,7 +2442,11 @@
+       extensionProfile: 0x0240,
+       extensionData
+     });
+-    const wire = await srtpEncrypt(this.#srtpSend, rtp);
++    // Incoming native-call routes carry plain RTP in both directions.  The
++    // ordinary outgoing route remains SRTP because mediaPlaintext is unset.
++    const wire = this.#opts.mediaPlaintext
++      ? Buffer.from(rtp)
++      : await srtpEncrypt(this.#srtpSend, rtp);
+     this.#debug({
+       type: "media_send",
+       bytes: wire.length,
+@@ -2118,6 +2460,7 @@
+       rtpExtensionIndex: this.#groupAudioExtensionIndex,
+       timestamp,
+       timestampStep,
++      wireMode: this.#opts.mediaPlaintext ? "plaintext" : "srtp",
+       family: this.#rtp.host.includes(":") ? "ipv6" : "ipv4",
+       port: this.#rtp.port
+     });
+@@ -2262,9 +2605,15 @@
+           rtpSecondByte: wire.length > 1 ? wire[1] : undefined,
+           reason: e instanceof Error ? e.message : String(e)
+         });
++        if (this.__keyMat && (this.__wireDumped ?? 0) < 3) {
++          this.__wireDumped = (this.__wireDumped ?? 0) + 1;
++          this.#debug({ type: "keycap", n: this.__wireDumped,
++            wire: Buffer.from(wire).toString("hex"),
++            mat: this.__wireDumped === 1 ? this.__keyMat : undefined });
++        }
+       // Drop unauthenticated media.
+       }
+     }
+   }
+ }
+-//# sourceMappingURL=transport.js.map
+\ No newline at end of file
++//# sourceMappingURL=transport.js.map

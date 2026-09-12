@@ -1,0 +1,18 @@
+[Unit]
+Description=LINE Legacy local queue worker
+After=line-legacy-legy.service line-legacy-linejs-bridge.service
+Wants=line-legacy-legy.service line-legacy-linejs-bridge.service
+
+[Service]
+Type=simple
+User=linelegacy
+Group=linelegacy
+WorkingDirectory=/opt/line-legacy
+EnvironmentFile=-/etc/line-legacy/line-legacy.env
+ExecStart=/opt/line-legacy/venv/bin/python /opt/line-legacy/local_worker.py
+Restart=always
+RestartSec=10
+NoNewPrivileges=true
+
+[Install]
+WantedBy=line-legacy.target

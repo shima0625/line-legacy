@@ -1,0 +1,19 @@
+[Unit]
+Description=LINE Legacy CDN and content compatibility proxy
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=linelegacy
+Group=linelegacy
+WorkingDirectory=/opt/line-legacy
+EnvironmentFile=-/etc/line-legacy/line-legacy.env
+ExecStart=/opt/line-legacy/venv/bin/python /opt/line-legacy/cdn_proxy.py 8081
+Restart=always
+RestartSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=line-legacy.target

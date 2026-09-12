@@ -1,0 +1,19 @@
+[Unit]
+Description=LINE Legacy optional LINEJS call gateway
+Documentation=file:/opt/line-legacy/README.md
+After=network-online.target line-legacy-linejs-bridge.service
+Wants=network-online.target line-legacy-linejs-bridge.service
+
+[Service]
+Type=simple
+User=linelegacy
+Group=linelegacy
+WorkingDirectory=/opt/line-legacy/linejs-bridge
+EnvironmentFile=-/etc/line-legacy/line-legacy.env
+ExecStart=/usr/bin/node /opt/line-legacy/linejs-bridge/legacy_call_gateway.mjs
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+
+[Install]
+WantedBy=line-legacy.target

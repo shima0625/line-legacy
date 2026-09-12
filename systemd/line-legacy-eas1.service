@@ -1,0 +1,31 @@
+[Unit]
+Description=LINE Legacy optional EAS1 codec helper
+After=local-fs.target
+Before=line-legacy-call.service
+
+[Service]
+Type=simple
+User=linelegacy
+Group=linelegacy
+WorkingDirectory=/opt/line-legacy/eas1-helper
+EnvironmentFile=-/etc/line-legacy/line-legacy.env
+RuntimeDirectory=line-eas1
+RuntimeDirectoryMode=0750
+ExecStart=/usr/bin/qemu-arm -L / /opt/line-legacy/eas1-helper/eas1_helper --server /run/line-eas1/eas1.sock /opt/line-legacy/eas1-helper/libamp.so
+Restart=always
+RestartSec=2
+NoNewPrivileges=yes
+PrivateNetwork=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_UNIX
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=line-legacy.target

@@ -1,0 +1,10 @@
+{
+  "name": "line-legacy-linejs-bridge",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@evex/linejs": "npm:@jsr/evex__linejs@3.2.1",
+    "opusscript": "^0.1.1",
+    "qrcode-terminal": "0.12.0"
+  }
+}
