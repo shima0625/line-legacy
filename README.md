@@ -36,7 +36,7 @@ LINEおよびLY Corporationの公式ソフトウェアではありません。
 ## 全体像
 
 ```text
-iPhone (iOS 5/6 + LINE 3.7.1 + LINEBridge Tweak)
+iPhone (iOS 5以降 + LINE 3.7.1 + LINEBridge Tweak)
         │  LAN: TCP 80 / 443 / 8081
         ▼
 Ubuntu母艦 (LINE Legacy gateway)
@@ -149,7 +149,7 @@ sudo systemctl enable --now line-legacy-video.service
 
 ### 7. iPhoneにTweakを設定する
 
-[Releases](https://github.com/shima0625/line-legacy/releases)の`LINEBridge-0.1.0-ios6-armv7.deb`を脱獄済みのiOS 5/6端末へインストールします。現在の添付パッケージはiOS 6ターゲットのため、iOS 5では修正後のソースからビルドしてください。iOS 5／armv7対応Theosが必要です。
+[Releases](https://github.com/shima0625/line-legacy/releases)の`LINEBridge-0.1.0-ios5-armv7.deb`を、脱獄済みのiOS 5以降のarmv7端末へインストールします。この1パッケージがiOS 5とiOS 6の両方に対応します。
 
 「設定 → LINE Bridge」で次の3項目を設定します。
 
