@@ -1590,6 +1590,26 @@ class H(BaseHTTPRequestHandler):
         self.wfile.write(data)
         self.close_connection = True
 
+    def _bridge_config_get(self):
+        """現在の設定を返すだけの応答。死活監視の宛先。
+
+        `bridge.conf` には `self_mid` も入っているので、外に出すのは端末種別
+        だけにしておく。
+        """
+        conf = {}
+        try:
+            with open(os.path.join(BASE, "bridge.conf"), encoding="utf-8") as f:
+                conf = json.load(f)
+        except Exception:
+            conf = {}
+        body = json.dumps({"device_type": conf.get("device_type")},
+                          ensure_ascii=False).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def _bridge_config(self):
         """設定.app の LINE Bridge ペインから送られてくる設定を bridge.conf に
         反映し、ブリッジを張り直す。端末単体版になればこの経路は不要になる。"""
@@ -2107,6 +2127,12 @@ class H(BaseHTTPRequestHandler):
             self.wfile.write(data)
 
     def do_GET(self):
+        # `/bridge/config` の POST は設定.app からの反映だが、死活監視は GET で
+        # 叩く(tools/doctor.sh、compose.yaml の healthcheck、README の切り分け)。
+        # GET を素通しすると 404 になり、Compose では cdn が healthy にならず
+        # gateway が起動しないので、現在の設定を返すだけの応答を用意する。
+        if urllib.parse.urlsplit(self.path).path.startswith("/bridge/config"):
+            return self._bridge_config_get()
         # tauth.line.naver.jp/getToken/<service> -- 3.7.1 asks for an OBS access
         # token right before playing a timeline video (see -[NLMovieURLLoader
         # loadMovieWithOBSParameters:]).  Our relay reaches OBS without any
