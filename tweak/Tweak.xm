@@ -191,15 +191,15 @@ static void LBPrefsChanged(CFNotificationCenterRef center, void *observer, CFStr
 }
 
 %ctor {
-  @autoreleasepool {
-    LBLoadPrefs();
-    LBLoadStickerMap();
-    LBIndexStrayStickerPackages();
-    CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, LBPrefsChanged,
-      CFSTR("jp.naver.line.bridge/settingsChanged"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
-    MSHookFunction((void *)getaddrinfo, (void *)hook_getaddrinfo, (void **)&orig_getaddrinfo);
-    MSHookFunction((void *)gethostbyname, (void *)hook_gethostbyname, (void **)&orig_gethostbyname);
-    MSHookFunction((void *)CFHostCreateWithName, (void *)hook_CFHostCreateWithName, (void **)&orig_CFHostCreateWithName);
-    MSHookFunction((void *)SecTrustEvaluate, (void *)hook_SecTrustEvaluate, (void **)&orig_SecTrustEvaluate);
-  }
+  NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
+  LBLoadPrefs();
+  LBLoadStickerMap();
+  LBIndexStrayStickerPackages();
+  CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, LBPrefsChanged,
+    CFSTR("jp.naver.line.bridge/settingsChanged"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
+  MSHookFunction((void *)getaddrinfo, (void *)hook_getaddrinfo, (void **)&orig_getaddrinfo);
+  MSHookFunction((void *)gethostbyname, (void *)hook_gethostbyname, (void **)&orig_gethostbyname);
+  MSHookFunction((void *)CFHostCreateWithName, (void *)hook_CFHostCreateWithName, (void **)&orig_CFHostCreateWithName);
+  MSHookFunction((void *)SecTrustEvaluate, (void *)hook_SecTrustEvaluate, (void **)&orig_SecTrustEvaluate);
+  [pool drain];
 }

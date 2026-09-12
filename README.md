@@ -20,7 +20,7 @@ LINEおよびLY Corporationの公式ソフトウェアではありません。
 - 相手側で付いた既読の3.7.1への反映
 - 位置情報・連絡先の送信
 - 新着メッセージと着信のプッシュ通知（Skyglowサーバーが別途必要。下記参照）
-- iOS 5以上／armv7用LINEBridge Tweak（接続先変更、証明書ピン留め、受信済み非所持スタンプの再起動後復元）
+- iOS 4.3以上／armv7用LINEBridge Tweak（接続先変更、証明書ピン留め、受信済み非所持スタンプの再起動後復元）
 
 タイムラインは既定でフォロー中の投稿だけを表示します。VOOMのおすすめ投稿も不足分へ混ぜたい場合だけ、`TIMELINE_INCLUDE_RECOMMENDED=1`を設定してください。
 
@@ -36,7 +36,7 @@ LINEおよびLY Corporationの公式ソフトウェアではありません。
 ## 全体像
 
 ```text
-iPhone (iOS 5以降 + LINE 3.7.1 + LINEBridge Tweak)
+iPhone (iOS 4.3以降 + LINE 3.7.1 + LINEBridge Tweak)
         │  LAN: TCP 80 / 443 / 8081
         ▼
 Ubuntu母艦 (LINE Legacy gateway)
@@ -149,7 +149,7 @@ sudo systemctl enable --now line-legacy-video.service
 
 ### 7. iPhoneにTweakを設定する
 
-[Releases](https://github.com/shima0625/line-legacy/releases)の`LINEBridge-0.1.1-ios5-armv7.deb`を、脱獄済みのiOS 5以降のarmv7端末へインストールします。この1パッケージがiOS 5とiOS 6の両方に対応します。
+[Releases](https://github.com/shima0625/line-legacy/releases)のLINEBridgeパッケージを、脱獄済みのiOS 4.3以降のarmv7端末へインストールします。この1パッケージがiOS 4.3以降に対応します。
 
 「設定 → LINE Bridge」で次の3項目を設定します。
 
@@ -226,7 +226,7 @@ Skyglowはクライアント側デーモンのみが公開されており、サ�
 
 Tweakの設定画面で、互換サーバーの接続先と証明書情報を指定します。
 
-ビルド済みパッケージはReleasesに添付しています。自分でビルドする場合は、iOS 5／armv7対応のTheos環境で次を実行します。
+ビルド済みパッケージはReleasesに添付しています。自分でビルドする場合は、iOS 4.3／armv7対応のTheos環境で次を実行します。
 
 ```sh
 cd tweak

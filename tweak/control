@@ -6,6 +6,6 @@ Description: Routes legacy LINE endpoints to a user-selected compatibility bridg
 Maintainer: shima0625
 Author: shima0625
 Section: Tweaks
-Depends: mobilesubstrate, preferenceloader
+Depends: firmware (>= 4.3), mobilesubstrate, preferenceloader
 Conflicts: jp.shima.linebridge, io.github.linelegacy.bridge
 Replaces: jp.shima.linebridge, io.github.linelegacy.bridge
