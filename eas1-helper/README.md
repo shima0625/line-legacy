@@ -16,7 +16,9 @@ LINE 3.7.1の音声通話は、LINE独自の音声コーデックEAS1（`eas1/16
 
 ## 必要なもの
 
-- armv7（ハードフロート）向けクロスコンパイラ。例: `arm-linux-gnueabihf-gcc`
+- armv7（ハードフロート）向けクロスコンパイラとそのヘッダ。Debian/Ubuntuなら
+  `gcc-arm-linux-gnueabihf` と `libc6-dev-armhf-cross`（後者はRecommends扱いなので、
+  `--no-install-recommends`を使うと入らず`dlfcn.h`が見つからないエラーになります）
 - armv7以外のホストで動かす場合はqemu-user（`qemu-arm`）
 - 実行時に必要なarmhfの共有ライブラリ: `libm.so.6`、`libdl.so.2`、`libstdc++.so.6`、`libGLESv2.so.2`、`libgcc_s.so.1`
 
