@@ -26,15 +26,15 @@ import { execFileSync } from "node:child_process";
 import nacl from "tweetnacl";
 import { BaseClient } from "@evex/linejs/base";
 import { FileStorage } from "@evex/linejs/storage";
+import { loadWorkerConf } from "./common.mjs";
 
 const legacyDir = process.env.LINE_LEGACY_DIR ?? "/opt/line-legacy";
 const bridgeDir = process.env.LINEJS_BRIDGE_DIR ?? path.join(legacyDir, "linejs-bridge");
 
-const DEFAULT_CONF = {
-  device: "IOSIPAD",
-  version: "26.14.1",
-  tokenFile: "authtoken.txt",            // legacyDir からの相対でも絶対でも可
-  storageFile: "iosipad-storage.json",   // bridgeDir 基準
+// 端末種別・版・トークン・ストレージは common.mjs と共通の既定値を使い、
+// bridge_worker.json で上書きする。ここに別の既定値を置くと、動画・通話の
+// ワーカーと違うアカウントやストレージを掴む事故に戻る。
+const WORKER_DEFAULTS = {
   writeAuthToken: true,   // authtoken.txt を書く(= real_token.txt へ波及する)
   dumpMaxAgeHours: 12,
   syncIntervalMs: 1500,
@@ -108,7 +108,7 @@ function removeRecommendation(mid) {
     contacts.filter((value) => String(value?.mid ?? "") !== mid));
 }
 
-const CONF = { ...DEFAULT_CONF, ...readJson(path.join(bridgeDir, "bridge_worker.json"), {}) };
+const CONF = loadWorkerConf(WORKER_DEFAULTS);
 
 function resolveIn(base, file) {
   return path.isAbsolute(file) ? file : path.join(base, file);

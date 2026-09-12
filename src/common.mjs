@@ -18,11 +18,20 @@ export function safeError(error) {
 //   切り替えたあと video_worker と call_route_helper だけが
 //   AUTHENTICATION_FAILED になっていた(2026-09-09)。トークンだけ差し替えても駄目で、
 //   種別・版・ストレージが揃っている必要がある。
-function loadWorkerConf() {
-  const defaults = {
-    device: "DESKTOPWIN", version: "9.8.0.3597",
-    tokenFile: "authtoken.txt", storageFile: "storage.json",
-  };
+//
+//   既定値もワーカー間で揃える。ここだけ DESKTOPWIN/storage.json にしていたため、
+//   bridge_worker.json が無い環境では bridge_worker が iosipad-storage.json を
+//   読む一方で video/call が空の storage.json を作り、そちらだけ
+//   AUTHENTICATION_FAILED で再起動を繰り返していた。
+export const WORKER_CONF_DEFAULTS = {
+  device: "IOSIPAD",
+  version: "26.14.1",
+  tokenFile: "authtoken.txt",            // legacyDir からの相対でも絶対でも可
+  storageFile: "iosipad-storage.json",   // bridgeDir 基準
+};
+
+export function loadWorkerConf(extraDefaults = {}) {
+  const defaults = { ...WORKER_CONF_DEFAULTS, ...extraDefaults };
   try {
     return { ...defaults,
       ...JSON.parse(fs.readFileSync(path.join(bridgeDir, "bridge_worker.json"), "utf8")) };
