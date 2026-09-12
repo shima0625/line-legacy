@@ -149,7 +149,7 @@ sudo systemctl enable --now line-legacy-video.service
 
 ### 7. iPhoneにTweakを設定する
 
-[Releases](https://github.com/shima0625/line-legacy/releases)の`LINEBridge-0.1.0-ios5-armv7.deb`を、脱獄済みのiOS 5以降のarmv7端末へインストールします。この1パッケージがiOS 5とiOS 6の両方に対応します。
+[Releases](https://github.com/shima0625/line-legacy/releases)の`LINEBridge-0.1.1-ios5-armv7.deb`を、脱獄済みのiOS 5以降のarmv7端末へインストールします。この1パッケージがiOS 5とiOS 6の両方に対応します。
 
 「設定 → LINE Bridge」で次の3項目を設定します。
 
