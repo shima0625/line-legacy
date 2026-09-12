@@ -32,6 +32,7 @@ install -m 0640 -o "$service_user" -g "$service_user" \
   "$repo_dir/src/requirements.txt" "$install_root/requirements.txt"
 
 # 通話とメディアに要る @evex/linejs のパッチ。npm install のあとに当てる。
+# 応答トランザクションIDの互換修正もこの1ファイルに統合済み。
 install -d -m 0755 -o root -g root "$install_root/patches"
 install -m 0644 -o root -g root "$repo_dir/patches/linejs-3.2.1-call.patch" "$install_root/patches/linejs-3.2.1-call.patch"
 install -d -m 0755 -o root -g root "$install_root/tools"

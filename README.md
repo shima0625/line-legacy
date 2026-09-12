@@ -20,7 +20,7 @@ LINEおよびLY Corporationの公式ソフトウェアではありません。
 - 相手側で付いた既読の3.7.1への反映
 - 位置情報・連絡先の送信
 - 新着メッセージと着信のプッシュ通知（Skyglowサーバーが別途必要。下記参照）
-- iOS 6用LINEBridge Tweak（接続先変更、証明書ピン留め、受信済み非所持スタンプの再起動後復元）
+- iOS 5以上／armv7用LINEBridge Tweak（接続先変更、証明書ピン留め、受信済み非所持スタンプの再起動後復元）
 
 タイムラインは既定でフォロー中の投稿だけを表示します。VOOMのおすすめ投稿も不足分へ混ぜたい場合だけ、`TIMELINE_INCLUDE_RECOMMENDED=1`を設定してください。
 
@@ -33,55 +33,147 @@ LINEおよびLY Corporationの公式ソフトウェアではありません。
 
 非所持スタンプ復元機能は、LINE自身が保存した受信スタンプ用キャッシュを起動時に再読込します。パッケージを購入済み・使用可能として登録せず、所持スタンプ一覧にも追加しません。
 
-## 構成
+## 全体像
 
-- `src/bridge_worker.mjs`: 現行アカウントとの送受信、連絡先・グループ同期
-- `src/legy_proxy.py`: 3.7.1向けThrift/SPDY互換ゲートウェイ
-- `src/cdn_proxy.py`: 画像・動画・スタンプ・タイムライン用CDN互換処理
-- `src/local_worker.py`: 旧アプリとLINEJSワーカー間のローカルキュー
-- `src/legacy_*.py`: グループ、スタンプ、ホーム、ノート等の互換処理
-- `src/video_worker.mjs`: E2EE動画送信
-- `src/legacy_call_gateway.mjs`: 通話ゲートウェイ
-- `src/line_skyglow_notify.py`: Skyglowサーバーへのプッシュ通知転送
-- `eas1-helper/`: 通話に使うEAS1コーデックヘルパー（要`libamp.so`）
-- `tweak/`: iOS 6／armv7用LINEBridge Tweakソース
-- `systemd/`: `/opt/line-legacy`向けサービス例
-- `tools/`: インストール、簡易動作確認
+```text
+iPhone (iOS 5/6 + LINE 3.7.1 + LINEBridge Tweak)
+        │  LAN: TCP 80 / 443 / 8081
+        ▼
+Ubuntu母艦 (LINE Legacy gateway)
+        │  LINEJSセッション
+        ▼
+     現行LINE
+```
 
-## 必要なもの
+TweakがLINEアプリ内の接続先を母艦へ向け、母艦が新旧プロトコルを変換します。Tweakを使う通常構成では、iPhoneのDNSや`/etc/hosts`は変更しません。`line-legacy-dns.service`はTweakを使わない検証用の代替手段で、既定では起動しません。
 
-- Linux、WindowsまたはmacOSホストと、Python 3、Node.js、ffmpeg／ffprobe（動画送信、動画サムネイルの生成、音声メッセージの長さ測定に使います。入っていないと動画のサムネイルが出ず、音声の長さが0:00になります）
-- 旧アプリからの**HTTP 80番**を受けられること（スタンプ・着せ替え・お知らせは80番へ来ます。同梱の`apache/line-legacy-content.conf`を参照）
-- Python依存パッケージ（`src/requirements.txt`。`akad`と`thrift`のみ）
-- `@evex/linejs`等のNode依存パッケージ
-- 自分で作成したTLS証明書
-- Tweakを自分でビルドする場合はiOS 6／armv7対応Theos
-- 通話を使う場合はEAS1コーデックヘルパー（同梱していません。下記参照）
-- プッシュ通知を使う場合はSkyglowサーバーと、端末側のSkyglow（下記参照）
+## Ubuntuへのセットアップ
 
-## セットアップ概要
+以下は、iPhoneと同じLAN上のUbuntuを母艦にする手順です。`192.168.1.10`は母艦のLAN IP、`192.168.1.20`はiPhoneのLAN IPの例です。実際の値に読み替えてください。
 
-1. `.env.example`を`/etc/line-legacy/line-legacy.env`へコピーし、自分の環境のアドレスを設定します。
-2. `sudo tools/install-files.sh`でファイルとsystemdユニットを配置します。このスクリプトはサービスを起動しません。
-3. `/opt/line-legacy`に仮想環境を作り、Python依存パッケージを入れます。systemdユニットは`/opt/line-legacy/venv/bin/python`を使います。
+### 1. 必要なソフトを入れる
 
-   ```sh
-   python3 -m venv /opt/line-legacy/venv
-   /opt/line-legacy/venv/bin/pip install -r /opt/line-legacy/requirements.txt
-   ```
+```sh
+sudo apt update
+sudo apt install -y git curl python3 python3-venv nodejs npm ffmpeg apache2 patch openssl
+git clone https://github.com/shima0625/line-legacy.git
+cd line-legacy
+```
 
-4. `/opt/line-legacy/linejs-bridge`で`npm install`を実行します。`@evex/linejs`はnpmではなくJSRで配布されているため、同梱の`.npmrc`が`@jsr`スコープのレジストリを指定しています。この`.npmrc`が無いと取得に失敗します。
-5. `sudo /opt/line-legacy/tools/patch-linejs.sh`を実行します。素の`@evex/linejs` 3.2.1は通話のメディア鍵を解けず（相手の声が出ません）、音声メッセージに長さを付けません。同梱の`patches/linejs-3.2.1-call.patch`がその2点を直します。既に当たっている場合は何もしません。
-6. `node setup-login.mjs`を実行し、表示されたQRコードを自分のLINEで読み取ります。このスクリプトは認証トークン、mid、X-Line-Applicationの3点を`bridge_identity.json`へまとめて書き出します。この3点が揃っていないと、現行サーバーへ中継する要求が認証エラーで弾かれます。またQRハンドシェイクで渡されるアカウントの既存E2EE鍵を引き継ぎます。鍵を新規登録すると、同じアカウントの他の端末のLetter Sealingを奪う（相手からの暗号化メッセージがスマホで読めなくなる）ため、既定では新規登録しません。
-7. 自分の証明書とネットワーク経路を設定してから、必要なサービスだけを有効化します。`line-legacy.target`にはお知らせ更新タイマーも含まれます。動画送信を使う場合は`/opt/line-legacy/linejs-bridge/video_enabled`を作り、`line-legacy-video.service`を有効にしてください（このファイルが無いと動画送信は拒否されます）。
+Node.js 20以上を推奨します。`node --version`で確認し、Ubuntu付属版が古い場合はNode.jsの公式配布版を使ってください。
 
-`setup-login.mjs`は認証トークン（`authtoken.txt`）と、E2EE鍵を含むストレージ（`<device>-storage.json`）をホスト上へ保存します。この2つは同じログインで生成された組み合わせのまま使ってください。別のものを混ぜると新しいE2EE鍵が登録され、同じアカウントを使う他の端末で暗号化メッセージが読めなくなることがあります。
+### 2. ゲートウェイを配置する
 
-## 対応OS
+```sh
+sudo ./tools/install-files.sh
+sudo python3 -m venv /opt/line-legacy/venv
+sudo /opt/line-legacy/venv/bin/pip install -r /opt/line-legacy/requirements.txt
+sudo -u linelegacy sh -c 'cd /opt/line-legacy/linejs-bridge && npm install'
+sudo /opt/line-legacy/tools/patch-linejs.sh
+```
 
-Python／Nodeで構成されるメッセージ、連絡先、グループ、CDN、ホーム／ノートの各サービスは、パスと待受アドレスを環境変数で設定すればWindows・macOSでも手動起動できます。
+`install-files.sh`は専用ユーザー`linelegacy`、実行ファイル、systemdユニット、Apacheの80番転送設定を用意します。この時点ではサービスは起動しません。`patch-linejs.sh`は通話、通話応答のトランザクションID、音声メッセージの長さをまとめて修正します。`npm install`の後に1回実行してください。
 
-同梱の`tools/install-files.sh`と`systemd/`はLinux用の起動例です。Windowsではサービス登録、macOSではlaunchd設定を別途用意してください。また、53番・443番ポートの待受にはOSごとの管理者権限やファイアウォール設定が必要です。通話機能はEAS1ヘルパーとのローカルソケット接続を使うため、現在の配布設定はLinux向けです。他OSでは`LINE_LEGACY_EAS1_SOCKET`とヘルパー側の接続方式を合わせる必要があります。
+### 3. TLS証明書を作る
+
+```sh
+sudo openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 3650 \
+  -subj '/CN=LINE Legacy Bridge' \
+  -keyout /etc/line-legacy/server.key \
+  -out /etc/line-legacy/server.crt
+sudo sh -c 'cat /etc/line-legacy/server.key /etc/line-legacy/server.crt > /etc/line-legacy/server.pem'
+sudo chown root:linelegacy /etc/line-legacy/server.key /etc/line-legacy/server.crt /etc/line-legacy/server.pem
+sudo chmod 640 /etc/line-legacy/server.key /etc/line-legacy/server.crt /etc/line-legacy/server.pem
+sudo openssl x509 -in /etc/line-legacy/server.crt -noout -fingerprint -sha256
+```
+
+最後に出る`SHA256 Fingerprint=...`の値を控えます。コロン付きのままTweakに入力できます。
+
+### 4. 環境のアドレスを設定する
+
+```sh
+sudo nano /etc/line-legacy/line-legacy.env
+```
+
+通常のメッセージ送受信では、次の2値を母艦のLAN IPに合わせます。
+
+```ini
+LINE_LEGACY_SERVER_IP=192.168.1.10
+LINE_LEGACY_MEDIA_BASE=http://192.168.1.10:8081
+```
+
+通話も使う場合は、iPhoneと通話ゲートウェイのアドレスも設定します。
+
+```ini
+LINE_LEGACY_PHONE_IP=192.168.1.20
+LINE_LEGACY_CALL_HOST=192.168.1.10
+```
+
+現行プロフィールから電話番号を復元できない場合は、補完値も設定できます。
+
+```ini
+LINE_LEGACY_PHONE=+81...
+```
+
+`LINE_LEGACY_PHONE`はE.164形式で入力します。`SELF_MID`は初回ログイン時に作られる`bridge_identity.json`から取得するため、通常は空欄のままで構いません。
+
+### 5. LINEアカウントへQRログインする
+
+```sh
+sudo -u linelegacy env \
+  LINE_LEGACY_DIR=/opt/line-legacy \
+  LINEJS_BRIDGE_DIR=/opt/line-legacy/linejs-bridge \
+  node /opt/line-legacy/linejs-bridge/setup-login.mjs
+```
+
+接続種別は、通常は`1. iPad版`を選びます。表示されたQRコードを現行LINEのQRコードリーダーで読み取り、画面の案内に従って承認してください。成功すると認証トークン、アカウント情報、既存のE2EE鍵が`/opt/line-legacy`以下へ保存されます。
+
+`authtoken.txt`と`<device>-storage.json`は、必ず同じログインで生成された組み合わせのまま使ってください。別のものを混ぜると、他端末のLetter Sealingに影響することがあります。通常は`ALLOW_E2EE_REGISTER=1`を付けません。
+
+### 6. 起動する
+
+```sh
+sudo systemctl enable --now line-legacy.target
+sudo systemctl --no-pager --full status line-legacy.target
+sudo systemctl --no-pager --full status line-legacy-legy.service line-legacy-linejs-bridge.service
+```
+
+動画送信も使う場合は追加で実行します。
+
+```sh
+sudo -u linelegacy touch /opt/line-legacy/linejs-bridge/video_enabled
+sudo systemctl enable --now line-legacy-video.service
+```
+
+ファイアウォールを使っている場合は、iPhoneのあるLANからTCP 80、443、8081への接続を許可します。インターネット全体へは公開しないでください。
+
+### 7. iPhoneにTweakを設定する
+
+[Releases](https://github.com/shima0625/line-legacy/releases)の`LINEBridge-0.1.0-ios6-armv7.deb`を脱獄済みのiOS 5/6端末へインストールします。現在の添付パッケージはiOS 6ターゲットのため、iOS 5では修正後のソースからビルドしてください。iOS 5／armv7対応Theosが必要です。
+
+「設定 → LINE Bridge」で次の3項目を設定します。
+
+- `LINE Bridgeを使用`: オン
+- `サーバー`: 母艦のLAN IP（例: `192.168.1.10`）
+- `証明書SHA-256`: 手順3で表示したフィンガープリント
+
+「接続テスト」が成功したら「設定を反映」を押し、LINEを起動します。接続先の書き換えはTweakが行うため、端末のWi-Fi DNSは通常の設定のままで構いません。
+
+## うまく動かないとき
+
+- **接続テストが失敗する**: 母艦のIP、TCP 8081のファイアウォール、`line-legacy-cdn.service`の状態を確認します。
+- **LINEが接続エラーになる**: フィンガープリント、TCP 80/443、`line-legacy-legy.service`の状態を確認します。
+- **認証エラーが出る**: `journalctl -u line-legacy-linejs-bridge.service -n 100 --no-pager`を確認し、必要なら手順5のQRログインをやり直します。
+- **スタンプやお知らせだけ失敗する**: ApacheとTCP 80を確認します。`curl -H 'Host: dl.stickershop.line.naver.jp' http://127.0.0.1/bridge/config`で母艦内の転送を確認できます。
+- **動画送信が拒否される**: `video_enabled`の有無と`line-legacy-video.service`を確認します。
+- **音声が0:00、通話で相手の声が出ない**: `sudo /opt/line-legacy/tools/patch-linejs.sh`を再実行します。`npm install`で`node_modules`が更新された後はパッチの再適用が必要です。
+
+```sh
+sudo systemctl --failed
+sudo journalctl -u line-legacy-legy.service -u line-legacy-linejs-bridge.service -n 100 --no-pager
+```
+
+Python／Node部分はWindowsやmacOSでも手動起動できますが、同梱のインストーラと自動起動設定はUbuntu/systemd向けです。
 
 ## 通話とEAS1コーデックヘルパー
 
@@ -91,7 +183,14 @@ LINE 3.7.1の音声通話は、LINE独自の音声コーデックEAS1を使い�
 
 `libamp.so`自体はLINEの著作物のため本リポジトリには含めません。自分で入手したLINE for Android 4.0.3のAPKから`lib/armeabi-v7a/libamp.so`を取り出して使ってください。ソケットのパスは`LINE_LEGACY_EAS1_SOCKET`で指定します。
 
-また、依存パッケージのインストール後に`patches/linejs-conn-rsp-tranid.py`を実行し、利用中の`@evex/linejs`へ応答トランザクションID互換パッチを適用してください。
+ヘルパーの自己テストが通った後、通話用の2サービスを有効化します。
+
+```sh
+sudo systemctl enable --now line-legacy-eas1.service line-legacy-call.service
+sudo systemctl --no-pager --full status line-legacy-eas1.service line-legacy-call.service
+```
+
+通話を使う場合は、iPhoneのあるLANからUDP 19000と20000への接続も許可してください。
 
 ヘルパーを用意しない場合、通話以外の機能はそのまま利用できます。
 
@@ -127,7 +226,7 @@ Skyglowはクライアント側デーモンのみが公開されており、サ�
 
 Tweakの設定画面で、互換サーバーの接続先と証明書情報を指定します。
 
-ビルド済みパッケージはReleasesに添付しています。自分でビルドする場合は、iOS 6／armv7対応のTheos環境で次を実行します。
+ビルド済みパッケージはReleasesに添付しています。自分でビルドする場合は、iOS 5／armv7対応のTheos環境で次を実行します。
 
 ```sh
 cd tweak
@@ -148,7 +247,7 @@ make package
 | qrcode-terminal | 0.12.0 | Apache-2.0 | https://github.com/gtanner/qrcode-terminal |
 | ffmpeg | 利用環境による | 構成による | https://ffmpeg.org/ |
 
-`patches/linejs-conn-rsp-tranid.py`は、MIT Licenseで公開されている`@evex/linejs` 3.2.1の一部へ互換修正を適用します。
+`patches/linejs-3.2.1-call.patch`は、MIT Licenseで公開されている`@evex/linejs` 3.2.1の一部へ互換修正を適用します。
 
 Copyright (c) 2024-2026 Evex Developers
 

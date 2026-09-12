@@ -1,11 +1,11 @@
 ARCHS = armv7
-TARGET = iphone:clang:9.3:6.0
+TARGET = iphone:clang:9.3:5.0
 
 include $(THEOS)/makefiles/common.mk
 
 TWEAK_NAME = LINEBridge
 LINEBridge_FILES = Tweak.xm
-LINEBridge_FRAMEWORKS = Foundation Security
+LINEBridge_FRAMEWORKS = Foundation Security CFNetwork
 LINEBridge_LIBRARIES = substrate
 
 BUNDLE_NAME = LineBridge

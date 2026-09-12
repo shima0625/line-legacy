@@ -1,6 +1,6 @@
 [Unit]
 Description=LINE Legacy core compatibility stack
-Wants=line-legacy-cdn.service line-legacy-legy.service line-legacy-linejs-bridge.service line-legacy-local-worker.service line-legacy-dns.service line-legacy-notices.timer
+Wants=line-legacy-cdn.service line-legacy-legy.service line-legacy-linejs-bridge.service line-legacy-local-worker.service line-legacy-notices.timer
 After=network-online.target
 
 [Install]
