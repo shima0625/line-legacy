@@ -1807,9 +1807,12 @@ def _encode_group_contact(member):
         name = PROFILE.get(20) or name
         picture = PROFILE.get(22) or picture
     # field10=type(0), field11=status(0=UNSPECIFIED), field21=relation(2=NOT_REGISTERED),
-    # field22=displayName, field24=pictureStatus.  status 0 => not friend, not recommend.
+    # field22=displayName, field24=pictureStatus, field37=picturePath.
+    # status 0 => not friend, not recommend.
+    picture_path = member.get("picturePath") or resolved.get("picturePath") or ("/" + picture if picture else "")
     return (_tc_str(1, mid) + _tc_i32(9, 0) + _tc_i32(1, 0)
             + _tc_i32(10, 2) + _tc_str(1, name) + _tc_str(2, picture)
+            + (_tc_str(13, picture_path) if picture_path else b"")
             + b"\x00")
 
 

@@ -285,12 +285,24 @@ async function dumpContactsAndGroups(force = false) {
         groups.push(legacyGroup(chat));
       }
     }
-    writeJsonAtomic(GROUPS_JSON, groups);
-    log(`groups dumped: ${groups.length}`);
     // グループの非友だちメンバー/招待者を解決する。3.7.1 の「トークメンバー」画面と
     // 参加/招待の名前表示は getContacts の応答を使うが、友だち以外は contacts.json に
     // 居ないので名前もアイコンも出ない。member_contacts.json に補完する。
-    await refreshMemberContacts(groups);
+    const memberContacts = await refreshMemberContacts(groups);
+    // groups.json を公開する時点で Contact も同じスナップショットに埋め込む。
+    // 先に MID だけの groups.json を公開すると、直後に旧クライアントの getGroups が
+    // 来た場合、member_contacts.json の更新前なので名前と画像を空で永続化してしまう。
+    for (const group of groups) {
+      for (const key of ["members", "invitee"]) {
+        group[key] = (group[key] ?? []).map((member) => {
+          const value = typeof member === "string" ? { mid: member } : member;
+          const resolved = memberContacts[String(value?.mid ?? "")];
+          return resolved ? { ...resolved, ...value } : value;
+        });
+      }
+    }
+    writeJsonAtomic(GROUPS_JSON, groups);
+    log(`groups dumped: ${groups.length}`);
   } catch (error) {
     log(`groups dump err ${safeError(error)}`);
   }
@@ -311,7 +323,6 @@ async function refreshMemberContacts(groups) {
       }
     }
   }
-  if (!wanted.size) return;
   const prev = readJson(MEMBER_CONTACTS_JSON, {});
   const records = prev && typeof prev === "object" && !Array.isArray(prev) ? prev : {};
   const targets = [...wanted];
@@ -338,6 +349,7 @@ async function refreshMemberContacts(groups) {
   fs.writeFileSync(MEMBER_CONTACTS_JSON + ".tmp", JSON.stringify(records), { mode: 0o600 });
   fs.renameSync(MEMBER_CONTACTS_JSON + ".tmp", MEMBER_CONTACTS_JSON);
   log(`MEMBER-CONTACTS ${Object.keys(records).length} (resolved ${got}/${targets.length})`);
+  return records;
 }
 
 // ★linejs は enum を**名前(文字列)**で返す。CHRLINE 版は数値で書いていたので、
