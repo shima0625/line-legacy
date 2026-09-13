@@ -132,14 +132,14 @@ _pic_mtimes = {}
 
 
 def refresh_pictures():
-    """contacts.json / groups.json が更新されていたら _pic を読み直す。
+    """画像情報を持つスナップショットが更新されていたら _pic を読み直す。
 
     グループアイコンやプロフィール画像を変えると bridge_daemon がこの2つを
     書き直すが、load_pictures() は起動時にしか走らなかったので、実機からは
     いつまでも「no pictureStatus」に見えていた(2026-09-08)。
     """
     changed = False
-    for name in ("contacts.json", "groups.json"):
+    for name in ("contacts.json", "groups.json", "member_contacts.json"):
         f = os.path.join(BASE, name)
         try:
             mtime = os.path.getmtime(f)
@@ -175,7 +175,27 @@ def load_pictures():
                         _pic.setdefault(m["mid"], m["pictureStatus"])
         except Exception as e:
             log(f"load {name} err {e!r}")
-    for name in ("contacts.json", "groups.json"):
+    # Group snapshots now contain MID-only member records. The worker keeps
+    # resolved non-friend names and pictures in a separate map so those people
+    # do not appear as friends or recommendations. Include that map in the CDN
+    # route table used by /os/p/<mid>.
+    member_path = os.path.join(BASE, "member_contacts.json")
+    try:
+        members = json.load(open(member_path, encoding="utf-8"))
+        if isinstance(members, dict):
+            for mid, member in members.items():
+                if not isinstance(member, dict):
+                    continue
+                picture = member.get("pictureStatus")
+                if picture == "exist" and str(member.get("picturePath") or "").startswith("/r/"):
+                    picture = member.get("picturePath")
+                if mid and picture:
+                    _pic.setdefault(mid, picture)
+    except FileNotFoundError:
+        pass
+    except Exception as e:
+        log(f"load member_contacts.json err {e!r}")
+    for name in ("contacts.json", "groups.json", "member_contacts.json"):
         f = os.path.join(BASE, name)
         try:
             _pic_mtimes[name] = os.path.getmtime(f)

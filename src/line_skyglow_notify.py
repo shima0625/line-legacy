@@ -80,6 +80,13 @@ def display_name(mid):
     for contact in load_json(os.path.join(BASE, "contacts.json"), []):
         if str(contact.get("mid") or "") == str(mid or ""):
             return contact.get("displayName") or "LINE"
+    # Group snapshots intentionally carry only member MIDs. Non-friend member
+    # details live in this separate map so they do not leak into the friend or
+    # recommendation lists. Use it for notification text as well.
+    members = load_json(os.path.join(BASE, "member_contacts.json"), {})
+    member = members.get(str(mid or "")) if isinstance(members, dict) else None
+    if isinstance(member, dict):
+        return member.get("displayName") or "LINE"
     return "LINE"
 
 
