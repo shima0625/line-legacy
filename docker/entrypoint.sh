@@ -62,6 +62,23 @@ set_config() {
   rm -f "$temporary"
 }
 
+# 既存の設定に無いキーだけを .env.example から補う。値は上書きしない。
+# 空の設定ファイルが残っていると、以前の setup は存在だけを見てひな形を入れず、
+# IP の3行だけの設定になった(CHUNKED などの互換スイッチが全部抜ける)。
+add_missing_config() {
+  missing=$(awk '
+    NR == FNR {
+      if (match($0, /^[A-Za-z_][A-Za-z0-9_]*=/)) have[substr($0, 1, RLENGTH - 1)] = 1
+      next
+    }
+    match($0, /^[A-Za-z_][A-Za-z0-9_]*=/) && !(substr($0, 1, RLENGTH - 1) in have) { print }
+  ' "$config_file" "$image_root/.env.example")
+  [ -n "$missing" ] || return 0
+  printf '\n# Added by setup from .env.example\n%s\n' "$missing" >> "$config_file"
+  echo "added missing settings from .env.example:"
+  printf '%s\n' "$missing" | sed 's/=.*//; s/^/  /'
+}
+
 case "${1:-}" in
   setup)
     server_ip=${SETUP_SERVER_IP:-}
@@ -70,8 +87,11 @@ case "${1:-}" in
     case "$server_ip$phone_ip" in
       *[!A-Za-z0-9._:-]*) echo "invalid server or phone address" >&2; exit 2 ;;
     esac
-    if [ ! -e "$config_file" ]; then
+    # login は中身があるか(-s)で判定するので、setup も同じ基準で見る。
+    if [ ! -s "$config_file" ]; then
       cp "$image_root/.env.example" "$config_file"
+    else
+      add_missing_config
     fi
     set_config LINE_LEGACY_SERVER_IP "$server_ip"
     set_config LINE_LEGACY_CALL_HOST "$server_ip"

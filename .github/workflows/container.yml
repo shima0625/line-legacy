@@ -78,6 +78,24 @@ jobs:
             exit 1
           fi
 
+      # 空の設定ファイルが残っていると、以前の setup は存在だけを見てひな形を入れず、
+      # IP の3行だけの設定にした。login は -s で判定するので、互換スイッチが全部抜けた
+      # まま先へ進んでしまう。空の場合と、一部だけ残っている場合の両方を見る。
+      - name: Restore an empty or partial line-legacy.env from the template
+        run: |
+          set -eu
+          complete='grep -q "^CHUNKED=1$" /state/config/line-legacy.env && grep -q "^MORETAB=1$" /state/config/line-legacy.env && grep -q "^LINE_LEGACY_SERVER_IP=127.0.0.1$" /state/config/line-legacy.env'
+          for seed in ': > /state/config/line-legacy.env' \
+                      'printf "LINE_LEGACY_SERVER_IP=10.0.0.1\n" > /state/config/line-legacy.env'; do
+            docker compose run --rm --entrypoint sh setup -c "$seed"
+            docker compose run --rm -e SETUP_SERVER_IP=127.0.0.1 setup
+            if ! docker compose run --rm --entrypoint sh setup -c "$complete"; then
+              echo "::error::setup did not restore the template after: $seed"
+              docker compose run --rm --entrypoint cat setup /state/config/line-legacy.env || true
+              exit 1
+            fi
+          done
+
       - name: Stop the stack
         if: always()
         run: docker compose down --volumes --remove-orphans
