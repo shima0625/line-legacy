@@ -1,4 +1,7 @@
-* text=auto
+# テキストはどの OS でも LF で展開する。Windows の Git 既定(autocrlf)で CRLF に
+# なると、コンテナが読む line-legacy.env や Theos の Makefile/control が壊れる。
+# Windows 専用で CRLF が必要なファイルは置いていない。
+* text=auto eol=lf
 *.py text eol=lf
 *.mjs text eol=lf
 *.js text eol=lf

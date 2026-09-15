@@ -27,7 +27,10 @@ COPY src/*.mjs ./linejs-bridge/
 COPY .env.example ./.env.example
 COPY tools/doctor.sh ./tools/doctor.sh
 COPY tools/refresh_official_notices.py ./refresh_official_notices.py
-RUN chmod 0755 /opt/line-legacy/image/tools/doctor.sh
+# Windows で clone したツリーからビルドすると .env.example が CRLF で入り、
+# setup がそれをそのまま line-legacy.env に複製する。
+RUN chmod 0755 /opt/line-legacy/image/tools/doctor.sh \
+    && sed -i 's/\r$//' /opt/line-legacy/image/.env.example
 
 COPY docker/entrypoint.sh /usr/local/bin/line-legacy-entrypoint
 COPY docker/doctor.sh /usr/local/bin/line-legacy-doctor

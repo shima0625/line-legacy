@@ -11,11 +11,23 @@ config_file="$config_root/line-legacy.env"
 mkdir -p "$data_root" "$data_root/linejs-bridge" "$config_root" "$runtime_root" "$state_root/eas1"
 
 if [ -r "$config_file" ]; then
+  # Windows で clone したりメモ帳で編集したりすると CRLF になる。そのまま読むと
+  # 空行の CR をコマンドとして実行して `\r: not found` で止まり、止まらなかった
+  # 行も値の末尾に CR が付く(LINE_LEGACY_SERVER_IP=192.168.1.10\r)。setup の直後の
+  # login でこれに当たったので、読む前に LF へ揃える。書き戻せない場合も、揃えた
+  # 写しを読むので起動は続けられる。
+  normalized_config=$(mktemp)
+  tr -d '\r' < "$config_file" > "$normalized_config"
+  if ! cmp -s "$normalized_config" "$config_file"; then
+    { cat "$normalized_config" > "$config_file"; } 2>/dev/null \
+      || echo "warning: could not rewrite $config_file with LF line endings" >&2
+  fi
   set -a
   # This file is created from .env.example and is controlled by the operator.
   # shellcheck disable=SC1090
-  . "$config_file"
+  . "$normalized_config"
   set +a
+  rm -f "$normalized_config"
 fi
 
 export LINE_LEGACY_HOME="$data_root"

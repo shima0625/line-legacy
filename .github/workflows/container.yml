@@ -61,6 +61,23 @@ jobs:
           docker compose logs cdn || true
           exit 1
 
+      # Windows で clone したりメモ帳で編集したりすると line-legacy.env が CRLF になる。
+      # 1回目の setup は読み込まずに複製するだけなので通り、次の login が
+      # `\r: not found` で止まった。2回目の setup は既存の設定を読むので同じ所を通る。
+      - name: Accept a line-legacy.env with Windows line endings
+        run: |
+          set -eu
+          has_cr='grep -q "$(printf "\r")" /state/config/line-legacy.env'
+          docker compose run --rm -e SETUP_SERVER_IP=127.0.0.1 setup
+          docker compose run --rm --entrypoint sed setup -i 's/$/\r/' /state/config/line-legacy.env
+          # 変換が効いていなければこの検査自体に意味が無い
+          docker compose run --rm --entrypoint sh setup -c "$has_cr"
+          docker compose run --rm -e SETUP_SERVER_IP=127.0.0.1 setup
+          if docker compose run --rm --entrypoint sh setup -c "$has_cr"; then
+            echo "::error::line-legacy.env still has carriage returns after setup read it"
+            exit 1
+          fi
+
       - name: Stop the stack
         if: always()
         run: docker compose down --volumes --remove-orphans
