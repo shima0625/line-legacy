@@ -1,6 +1,6 @@
 Package: com.shima0625.linebridge
 Name: LINE Bridge
-Version: 0.1.1
+Version: 0.1.2
 Architecture: iphoneos-arm
 Description: Routes legacy LINE endpoints to a user-selected compatibility bridge.
 Maintainer: shima0625
