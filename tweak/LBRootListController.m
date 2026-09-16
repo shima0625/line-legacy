@@ -18,7 +18,12 @@
   NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"http://%@:8081/bridge/config", host]];
   NSURLResponse *response = nil;
   NSError *error = nil;
-  [NSURLConnection sendSynchronousRequest:[NSURLRequest requestWithURL:url cachePolicy:NSURLRequestReloadIgnoringLocalCacheData timeoutInterval:5.0]
+  // クラスは名前で引く。SDK 9.3 ではこの2つが CFNetwork にあるため、直接書くと
+  // リンカが CFNetwork に束縛するが、iOS 5/6 では Foundation にあり、dyld が
+  // 「Symbol not found: _OBJC_CLASS_$_NSURLConnection」で設定バンドルごと読み込めない。
+  id request = [NSClassFromString(@"NSURLRequest") requestWithURL:url
+    cachePolicy:NSURLRequestReloadIgnoringLocalCacheData timeoutInterval:5.0];
+  [NSClassFromString(@"NSURLConnection") sendSynchronousRequest:request
     returningResponse:&response error:&error];
   NSInteger code = [(NSHTTPURLResponse *)response statusCode];
   NSString *message = (!error && code >= 200 && code < 500) ? @"サーバーへ接続できました" : [NSString stringWithFormat:@"接続できません\n%@", error.localizedDescription ?: @"応答なし"];
