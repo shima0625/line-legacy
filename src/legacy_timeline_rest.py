@@ -1077,10 +1077,22 @@ def _current_timeline_activities(g, path, primary_token):
     g["maybe_reload_profile"]()
     self_mid = g["PROFILE"].get(1)
     collected = []
+    recommended = 0
     for feed in feeds:
+        # The tab feed mixes VOOM "for you" posts into the following feed:
+        # feedInfo.type RECOMMEND_POST with a recommendPost/recommendId, written
+        # by accounts the user neither friended nor followed.  They are not
+        # part of the legacy Timeline, so keep them only when discovery is on.
+        feed_type = str(((feed.get("feedInfo") or {}) if isinstance(feed, dict) else {}).get("type") or "")
+        if (not _INCLUDE_RECOMMENDED and isinstance(feed, dict)
+                and (feed_type.startswith("RECOMMEND") or "recommendPost" in feed)):
+            recommended += 1
+            continue
         post = _find_post(feed)
         if post is not None:
             collected.append(post)
+    if recommended:
+        g["log"]("  [timeline-rest] dropped %d recommended post(s)" % recommended)
     tab_count = len(collected)
     # Our own posts belong to the Home tab, not to the legacy Timeline.
     collected = [p for p in collected
