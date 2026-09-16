@@ -1,11 +1,12 @@
 ARCHS = armv7
-TARGET = iphone:clang:9.3:4.3
-
-# 最低OSを5.0未満にすると、clang が /usr/lib/libgcc_s.1.dylib を自動でリンクする。
-# iOS 5 以降の端末にこのライブラリは無いので、dyld が読み込みに失敗し、設定画面は
-# 「The bundle "LineBridge" couldn't be loaded」、Tweak 本体は無言で無効になる。
-# 実際には libgcc_s のシンボルを1つも使っていないので、参照の無い依存を落とさせる。
-ADDITIONAL_LDFLAGS = -Wl,-dead_strip_dylibs
+# 対応する中で一番古い世代の SDK でビルドする。新しい SDK には「古い iOS ではクラスが
+# 別のライブラリにあった」という情報が無く、iOS 9.3 SDK だとリンカが NSObject を
+# libobjc に、NSURLConnection を CFNetwork に結び付けた。iOS 5 ではそれぞれ
+# CoreFoundation と Foundation にあるため、設定画面が
+# 「The bundle "LineBridge" couldn't be loaded」で開けなかった。古い SDK で
+# ビルドしたものは、新しい iOS が互換のために読み込める。
+# SDK は theos/sdks/iPhoneOS5.1.sdk に置く(README を参照)。
+TARGET = iphone:clang:5.1:4.3
 
 include $(THEOS)/makefiles/common.mk
 

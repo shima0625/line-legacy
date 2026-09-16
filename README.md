@@ -354,7 +354,7 @@ sqlite3 sqlite.db "select profile_id, hex(routing_key), hex(e2ee_key) from notif
 
 Tweakの設定画面で、互換サーバーの接続先と証明書情報を指定します。
 
-ビルド済みパッケージはReleasesに添付しています。自分でビルドする場合は、iOS 4.3／armv7対応のTheos環境で次を実行します。
+ビルド済みパッケージはReleasesに添付しています。自分でビルドする場合は、Theosの`sdks/`に`iPhoneOS5.1.sdk`（Xcode 4.3〜4.4に含まれるもの）を置いてから次を実行します。より新しいSDKでビルドすると、iOS 5/6 ではクラスの置き場所が異なるため設定画面が読み込めません。
 
 ```sh
 cd tweak
