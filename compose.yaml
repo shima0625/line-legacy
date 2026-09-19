@@ -43,6 +43,15 @@ services:
     command: ["gateway"]
     environment:
       DOCKER_CDN_BACKEND: cdn:8081
+      READ_OP_TYPE: "0"
+      FOPS_HOLD: "8"
+      FOPS_MAX_HOLD: "1"
+      NATIVE_REGISTRATION: "1"
+      FORWARD_CACHE_METHODS: getActivePurchaseVersions,getActivePurchases
+      FORWARD_CACHE_TTL: "3600"
+      STICKER_PSTATUS_FIELDS: ""
+      STICKER_PAYMENTTYPE: "0"
+      FORWARD_METHODS: issueChannelToken,approveChannelAndIssueChannelToken,getChannelInfo,syncChannelData,getChannelNotificationSettings,getChannels,findContactByUserid,generateUserTicket,findContactByUserTicket,invalidateUserTicket,getPromotedBuddyContacts,getPopularBuddyLists,getNewlyReleasedBuddyIds,getBuddyDetail,getBuddyOnAir,getBuddyContacts,findBuddyContactsByQuery,getContact,findAndAddContactsByMid,updateProfileAttribute
     ports:
       - "443:8443/tcp"
     depends_on:
