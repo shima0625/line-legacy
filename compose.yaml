@@ -51,7 +51,7 @@ services:
       FORWARD_CACHE_TTL: "3600"
       STICKER_PSTATUS_FIELDS: ""
       STICKER_PAYMENTTYPE: "0"
-      FORWARD_METHODS: issueChannelToken,approveChannelAndIssueChannelToken,getChannelInfo,syncChannelData,getChannelNotificationSettings,getChannels,findContactByUserid,generateUserTicket,findContactByUserTicket,invalidateUserTicket,getPromotedBuddyContacts,getPopularBuddyLists,getNewlyReleasedBuddyIds,getBuddyDetail,getBuddyOnAir,getBuddyContacts,findBuddyContactsByQuery,getContact,findAndAddContactsByMid,updateProfileAttribute
+      FORWARD_METHODS: issueChannelToken,approveChannelAndIssueChannelToken,getChannelInfo,getChannelNotificationSettings,getChannels,findContactByUserid,generateUserTicket,findContactByUserTicket,invalidateUserTicket,getPromotedBuddyContacts,getPopularBuddyLists,getNewlyReleasedBuddyIds,getBuddyDetail,getBuddyOnAir,getBuddyContacts,findBuddyContactsByQuery,getContact,findAndAddContactsByMid,updateProfileAttribute
     ports:
       - "443:8443/tcp"
     depends_on:

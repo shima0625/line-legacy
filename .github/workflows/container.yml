@@ -53,6 +53,8 @@ jobs:
               if actual != expected:
                   raise SystemExit(f"gateway {key}: compose={actual!r}, systemd={expected!r}")
           PY
+      - name: Check synthesized legacy RPC replies
+        run: python3 tools/gateway_protocol_smoke.py
       - name: Build portable gateway image
         run: docker build --tag line-legacy:test .
       - name: Build optional EAS1 image

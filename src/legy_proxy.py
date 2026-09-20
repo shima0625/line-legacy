@@ -474,6 +474,10 @@ def _should_forward(tname):
     """env FORWARD_METHODS(カンマ区切り, `*`で全部)にあるメソッドは実gwへ中継する。"""
     if not tname:
         return False
+    # This legacy ChannelService RPC no longer exists upstream.  Forwarding it
+    # returns TApplicationException(unknown method) on every app launch.
+    if tname == "syncChannelData":
+        return False
     # 3.7.1 は受信した音声・動画の再生直前に、このRPCでCDN用Cookieを得る。
     # 空structを返すと本体GETへ進まないため、正しいstring応答を実gwから受け取る。
     if tname == "acquireEncryptedAccessToken":
@@ -2608,6 +2612,29 @@ def synth_for_method(method, seqid, payload=b""):
     """メソッド名からThrift応答本文を合成。未知はNone(=呼び出し元がEXC/emptyで対応)。"""
     if method == "getCountriesHavingBuddy":
         return build_string_list_result(method, seqid, BUDDY_COUNTRY_CHOICES)
+    if method == "syncChannelData":
+        # ChannelSyncDatas { channelInfos, channelDomains, revision, expires }.
+        # Keep the caller's revision and return an empty delta.  The upstream
+        # ChannelService method was removed and now returns UNKNOWN_METHOD.
+        revision = 0
+        try:
+            request_seq, pos = uvarint(payload, 2)
+            size, pos = uvarint(payload, pos)
+            if request_seq == seqid and payload[pos:pos + size] == method.encode():
+                args, end = _tc_read_struct(payload, pos + size)
+                if end == len(payload) and args.get(2, (None, None))[0] == 6:
+                    revision = int(args[2][1])
+        except Exception:
+            pass
+        data = bytearray()
+        prev = 0
+        prev = _tc_field(data, prev, 1, 9, b"\x0c")  # empty list<ChannelInfo>
+        prev = _tc_field(data, prev, 2, 9, b"\x0c")  # empty list<ChannelDomain>
+        prev = _tc_field(data, prev, 3, 6, put_uvarint(_zigzag64(revision)))
+        expires = int(time.time() * 1000) + 24 * 60 * 60 * 1000
+        _tc_field(data, prev, 4, 6, put_uvarint(_zigzag64(expires)))
+        data.append(0)
+        return build_struct_result(method, seqid, bytes(data))
     native = _native_registration_reply(method, seqid, payload)
     if native is not None:
         return native
