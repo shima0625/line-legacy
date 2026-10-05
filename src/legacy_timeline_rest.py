@@ -113,7 +113,7 @@ def _issue_timeline_token(g, primary_token, seq):
 
 
 def _current_request(g, primary_token, method, path, payload=None,
-                     timeline_channel=False):
+                     timeline_channel=False, line_http_method=None):
     if not primary_token:
         raise ValueError("Bridge account token is unavailable")
     g["maybe_reload_profile"]()
@@ -137,7 +137,7 @@ def _current_request(g, primary_token, method, path, payload=None,
         "X-LAL": "ja_JP",
         "X-LSR": "JP",
         "X-LPV": "1",
-        "X-LHM": method,
+        "X-LHM": line_http_method or method,
     }
     body = None if payload is None else json.dumps(
         payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
@@ -486,6 +486,29 @@ def _post_get(g, path, primary_token):
     if post is None:
         raise ValueError("Post was not found upstream")
     return _json(0, "success", post)
+
+
+def _post_delete(g, path, primary_token):
+    """Delete one legacy Home post through the current v57 endpoint.
+
+    Current LINE uses an actual POST request while declaring GET in X-LHM.
+    Sending GET on the wire, or X-LHM: POST, does not match the live request.
+    """
+    values = _parse_values(path, {}, b"")
+    post_id = _one(values, "postId", "postID", "id")
+    if not post_id or not re.fullmatch(r"[0-9]{1,32}", post_id):
+        raise ValueError("Invalid post ID")
+    g["maybe_reload_profile"]()
+    home_id = g["PROFILE"].get(1)
+    if not isinstance(home_id, str) or not re.fullmatch(r"u[0-9a-f]{32}", home_id):
+        raise ValueError("Current profile MID is unavailable")
+    query = urllib.parse.urlencode({"homeId": home_id, "postId": post_id})
+    current = _current_request(
+        g, primary_token, "POST",
+        "/mh/api/v57/post/delete.json?" + query,
+        line_http_method="GET")
+    g["log"]("  [timeline-rest] post/delete %s -> success" % post_id)
+    return _json_from_current(current)
 
 
 _AUTOOPEN_PATH = os.path.join(_STATE_DIR, "timeline_autoopen.json")
@@ -1536,6 +1559,8 @@ def handle(g, method, host, path, headers, body, primary_token):
                 g, path, primary_token, talk_room=True)
         if method == "GET" and route == "/api/v1_6/post/get.json":
             return b"200 OK", json_headers, _post_get(g, path, primary_token)
+        if method == "GET" and route == "/api/v1_6/post/delete.json":
+            return b"200 OK", json_headers, _post_delete(g, path, primary_token)
         if route == "/mapi/v4/contact/autoopen":
             return b"200 OK", json_headers, _autoopen(
                 g, path, headers, body, False)

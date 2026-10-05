@@ -1,8 +1,9 @@
 #!/bin/sh
 # Apply the call/media patch to the installed @evex/linejs.
 #
-# 3.7.1 の通話とメディア送信は、素の @evex/linejs 3.2.1 では通りません。
-# patches/linejs-3.2.1-call.patch が当たっていないと次のようになります。
+# 3.7.1 の通話とメディア送信は、素の @evex/linejs 3.4.2 では通りません。
+# patches/linejs-3.2.1-call.patch（3.4.2にも適用確認済み）が当たっていないと
+# 次のようになります。
 #
 #   - 通話: PLANET からの RTP が全て "SRTP auth tag mismatch" で復号できず、
 #           相手の声が一切聞こえない
@@ -32,6 +33,6 @@ if patch -p1 --dry-run --silent < "$patch_file" >/dev/null 2>&1; then
 elif patch -p1 -R --dry-run --silent < "$patch_file" >/dev/null 2>&1; then
   echo "already applied; nothing to do"
 else
-  echo "patch does not apply cleanly. @evex/linejs 3.2.1 以外が入っている可能性があります。" >&2
+  echo "patch does not apply cleanly. 対応していない @evex/linejs が入っている可能性があります。" >&2
   exit 1
 fi
