@@ -129,7 +129,6 @@ fi
 
 server_ip=$(env_value LINE_LEGACY_SERVER_IP 2>/dev/null || true)
 media_base=$(env_value LINE_LEGACY_MEDIA_BASE 2>/dev/null || true)
-phone_ip=$(env_value LINE_LEGACY_PHONE_IP 2>/dev/null || true)
 
 case "$server_ip" in
   ''|127.0.0.1) fail "LINE_LEGACY_SERVER_IP is not set to the gateway LAN address" ;;
@@ -277,7 +276,11 @@ if [ "$files_only" -eq 0 ]; then
     [ -x "$install_root/eas1-helper/eas1_helper" ] && pass "EAS1 helper binary exists" || fail "EAS1 helper binary is missing"
     [ -s "$install_root/eas1-helper/libamp.so" ] && pass "libamp.so exists" || fail "libamp.so is missing"
     [ -S /run/line-eas1/eas1.sock ] && pass "EAS1 socket is available" || fail "EAS1 socket is unavailable"
-    case "$phone_ip" in ''|127.0.0.1) warn "LINE_LEGACY_PHONE_IP is not set for calls" ;; *) pass "LINE_LEGACY_PHONE_IP is configured" ;; esac
+    if unit_active line-legacy-skyglow.service; then
+      pass "Skyglow notifier is active for incoming calls"
+    else
+      warn "Skyglow notifier is not active; outgoing calls work, but incoming calls cannot be delivered"
+    fi
   fi
 
   if has systemctl && { unit_active line-legacy-skyglow.service || unit_enabled line-legacy-skyglow.service; }; then

@@ -3,7 +3,6 @@
 set -eu
 
 server_ip=
-phone_ip=
 skip_apt=0
 run_login=0
 start_services=0
@@ -16,7 +15,6 @@ Required:
   --server-ip ADDRESS  LAN address of this gateway
 
 Options:
-  --phone-ip ADDRESS   LAN address of the legacy iPhone (for calls)
   --skip-apt           Do not install Ubuntu packages
   --login              Run the interactive LINE QR login
   --start              Enable and start the core services after setup
@@ -31,10 +29,6 @@ while [ "$#" -gt 0 ]; do
     --server-ip)
       [ "$#" -ge 2 ] || { echo "--server-ip requires a value" >&2; exit 2; }
       server_ip=$2; shift
-      ;;
-    --phone-ip)
-      [ "$#" -ge 2 ] || { echo "--phone-ip requires a value" >&2; exit 2; }
-      phone_ip=$2; shift
       ;;
     --skip-apt) skip_apt=1 ;;
     --login) run_login=1 ;;
@@ -55,7 +49,6 @@ validate_address() {
   esac
 }
 validate_address "$server_ip" || { echo "invalid --server-ip value" >&2; exit 2; }
-[ -z "$phone_ip" ] || validate_address "$phone_ip" || { echo "invalid --phone-ip value" >&2; exit 2; }
 
 repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 install_root=${LINE_LEGACY_INSTALL_ROOT:-/opt/line-legacy}
@@ -123,7 +116,6 @@ set_env() {
 set_env LINE_LEGACY_SERVER_IP "$server_ip"
 set_env LINE_LEGACY_CALL_HOST "$server_ip"
 set_env LINE_LEGACY_MEDIA_BASE "http://$server_ip:8081"
-[ -z "$phone_ip" ] || set_env LINE_LEGACY_PHONE_IP "$phone_ip"
 
 systemctl daemon-reload
 

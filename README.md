@@ -49,7 +49,7 @@ TweakがLINEアプリ内の接続先を母艦へ向け、母艦が新旧プロ�
 
 ## 母艦へのセットアップ
 
-`192.168.1.10`は母艦のLAN IP、`192.168.1.20`はiPhoneのLAN IPの例です。実際の値に読み替えてください。
+`192.168.1.10`は母艦のLAN IPの例です。実際の値に読み替えてください。
 
 ### Docker Compose（Windows／macOS／Linux）
 
@@ -59,14 +59,13 @@ TweakがLINEアプリ内の接続先を母艦へ向け、母艦が新旧プロ�
 docker compose build setup
 docker compose run --rm \
   -e SETUP_SERVER_IP=192.168.1.10 \
-  -e SETUP_PHONE_IP=192.168.1.20 \
   setup
 ```
 
 WindowsのPowerShellでは改行せず、次のように1行で実行できます。
 
 ```powershell
-docker compose run --rm -e SETUP_SERVER_IP=192.168.1.10 -e SETUP_PHONE_IP=192.168.1.20 setup
+docker compose run --rm -e SETUP_SERVER_IP=192.168.1.10 setup
 ```
 
 表示された証明書フィンガープリントを控え、QRログインしてからコア機能を起動します。
@@ -86,10 +85,10 @@ docker compose run --rm enable-video
 docker compose --profile media up -d
 ```
 
-通話を使う場合は、自分で用意した`libamp.so`を`docker-data/eas1/libamp.so`へ置き、`calls`プロファイルを起動します。EAS1ヘルパー、QEMU、UDP 19000／20000の公開もComposeが管理します。
+通話を使う場合は、自分で用意した`libamp.so`を`docker-data/eas1/libamp.so`へ置き、`calls`プロファイルを起動します。EAS1ヘルパー、QEMU、UDP 19000／20000の公開もComposeが管理します。発信にはSkyglowは不要ですが、着信通知を端末へ届けるには`push`プロファイルも必要です。
 
 ```sh
-docker compose --profile calls up -d
+docker compose --profile calls --profile push up -d
 ```
 
 Skyglowを別のCompose構成または母艦上で動かす場合は、`docker-data/config/line-legacy.env`でサーバーURLとルーティングトークンを指定してから`push`プロファイルを起動します。Docker Desktop上の母艦へ接続するURLには`host.docker.internal`を利用できます。
@@ -114,10 +113,10 @@ Dockerを使わず、Ubuntuのsystemdサービスとして直接動かす方法�
 
 #### 自動セットアップ
 
-Ubuntuでは、母艦とiPhoneのLAN IPを指定すると、必要パッケージ、ファイル配置、Python／Node依存関係、LINEJS互換パッチ、TLS証明書、環境設定までをまとめて準備できます。指定したネットワーク項目以外の既存設定、証明書、ログイン情報は上書きしません。
+Ubuntuでは、母艦のLAN IPを指定すると、必要パッケージ、ファイル配置、Python／Node依存関係、LINEJS互換パッチ、TLS証明書、環境設定までをまとめて準備できます。指定したネットワーク項目以外の既存設定、証明書、ログイン情報は上書きしません。
 
 ```sh
-sudo ./tools/setup.sh --server-ip 192.168.1.10 --phone-ip 192.168.1.20
+sudo ./tools/setup.sh --server-ip 192.168.1.10
 ```
 
 QRログインも続けて行う場合は`--login`、ログイン済みの環境でサービスまで起動する場合は`--start`を追加します。Ubuntuパッケージを自分で用意済みの場合は`--skip-apt`も指定できます。
@@ -183,10 +182,9 @@ LINE_LEGACY_SERVER_IP=192.168.1.10
 LINE_LEGACY_MEDIA_BASE=http://192.168.1.10:8081
 ```
 
-通話も使う場合は、iPhoneと通話ゲートウェイのアドレスも設定します。
+通話も使う場合は、端末から到達できる母艦のアドレスを通話ゲートウェイへ設定します。
 
 ```ini
-LINE_LEGACY_PHONE_IP=192.168.1.20
 LINE_LEGACY_CALL_HOST=192.168.1.10
 ```
 
@@ -281,11 +279,11 @@ sudo systemctl --no-pager --full status line-legacy-eas1.service line-legacy-cal
 
 通話を使う場合は、iPhoneのあるLANからUDP 19000と20000への接続も許可してください。
 
-ヘルパーを用意しない場合、通話以外の機能はそのまま利用できます。
+ヘルパーを用意しない場合、通話以外の機能はそのまま利用できます。発信にはSkyglowは不要ですが、着信通知はSkyglow経由だけで配送するため、着信を使う場合は`line-legacy-skyglow.service`も有効化してください。
 
-## プッシュ通知（Skyglow）
+## プッシュ通知・着信通知（Skyglow）
 
-この世代の端末は現在ほとんどAPNsを受け取れないため、通知にはSkyglow（旧環境向けのサードパーティ製プッシュ通知基盤）を使います。SkyglowはiOS 4.0以降に対応しているので、本リポジトリが対象とするiOS 4.3以降はすべて動作範囲に入ります。
+この世代の端末は現在ほとんどAPNsを受け取れないため、新着メッセージと着信の通知にはSkyglow（旧環境向けのサードパーティ製プッシュ通知基盤）を使います。固定した端末IPへの直接通知には対応しません。SkyglowはiOS 4.0以降に対応しているので、本リポジトリが対象とするiOS 4.3以降はすべて動作範囲に入ります。
 
 サーバーは各自で用意する方法と、作者が運用している共用サーバーを使う方法があります。後者を使う場合は、通知を母艦で暗号化してから送れます（「共用サーバーを使う場合」を参照）。
 

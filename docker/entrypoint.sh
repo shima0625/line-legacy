@@ -82,10 +82,9 @@ add_missing_config() {
 case "${1:-}" in
   setup)
     server_ip=${SETUP_SERVER_IP:-}
-    phone_ip=${SETUP_PHONE_IP:-}
     [ -n "$server_ip" ] || { echo "SETUP_SERVER_IP is required" >&2; exit 2; }
-    case "$server_ip$phone_ip" in
-      *[!A-Za-z0-9._:-]*) echo "invalid server or phone address" >&2; exit 2 ;;
+    case "$server_ip" in
+      *[!A-Za-z0-9._:-]*) echo "invalid server address" >&2; exit 2 ;;
     esac
     # login は中身があるか(-s)で判定するので、setup も同じ基準で見る。
     if [ ! -s "$config_file" ]; then
@@ -96,7 +95,6 @@ case "${1:-}" in
     set_config LINE_LEGACY_SERVER_IP "$server_ip"
     set_config LINE_LEGACY_CALL_HOST "$server_ip"
     set_config LINE_LEGACY_MEDIA_BASE "http://$server_ip:8081"
-    [ -z "$phone_ip" ] || set_config LINE_LEGACY_PHONE_IP "$phone_ip"
 
     if [ ! -e "$config_root/server.key" ] && [ ! -e "$config_root/server.crt" ]; then
       openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 3650 \

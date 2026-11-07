@@ -21,7 +21,6 @@
 import fs from "node:fs";
 import path from "node:path";
 import { Buffer } from "node:buffer";
-import dgram from "node:dgram";
 import { execFileSync } from "node:child_process";
 import nacl from "tweetnacl";
 import { BaseClient } from "@evex/linejs/base";
@@ -55,10 +54,6 @@ const RECOMMENDATION_CONTACTS_JSON = path.join(legacyDir, "recommendation_contac
 const REV_STATE = path.join(bridgeDir, "worker_revision.json");
 const CALL_OPS = path.join(legacyDir, "call_ops.jsonl");
 const INCOMING_RING = path.join(bridgeDir, "incoming_ring.json");
-const NATIVE_CALL_FLAG = path.join(legacyDir, "skyglow_native_call.enabled");
-const PHONE_IP = process.env.LINE_LEGACY_PHONE_IP ?? "127.0.0.1";
-const RING_PORT = Number(process.env.RING_PORT ?? 17390);
-const SERVER_IP = process.env.LINE_LEGACY_SERVER_IP ?? "127.0.0.1";
 const MEDIA = path.join(legacyDir, "media");
 const UPLOAD = path.join(legacyDir, "upload");   // cdn_proxy が実機の実体を置く
 const VIDEO_IN = path.join(bridgeDir, "video_in.jsonl");
@@ -797,14 +792,6 @@ function handleCallOp(t, op, rev, createdTime) {
   if (t !== 50 || !caller) return;
   try {
     const serverPayload = JSON.parse(op?.param3 || "{}");
-    // ゲートウェイ用には**サーバの経路情報をそのまま**渡す。旧端末へ送る写しだけ
-    // 自分(Pi)のSIPゲートウェイへ向け直す。
-    const ring = { ...serverPayload, m: caller, h: SERVER_IP, p: 19000 };
-    for (const [k, v] of Object.entries(ring)) {
-      if (k === "p") continue;
-      ring[k] = typeof v === "boolean" ? String(v)
-        : typeof v === "number" ? String(v) : v;
-    }
     fs.writeFileSync(INCOMING_RING, JSON.stringify({
       callToken: serverPayload.n, callerMid: caller,
       callMid: op?.param2 ?? null, deviceKey: serverPayload.vs ?? "",
@@ -818,17 +805,9 @@ function handleCallOp(t, op, rev, createdTime) {
     } catch (error) {
       log(`着信INVITE待機の起動に失敗 ${safeError(error)}`);
     }
-    if (fs.existsSync(NATIVE_CALL_FLAG)) {
-      log(`Skyglow純正APNsモード: tweak向けRINGを省略: ${caller}`);
-      return;
-    }
-    const socket = dgram.createSocket("udp4");
-    const payload = Buffer.from("RINGJSON " + JSON.stringify(ring), "utf8");
-    socket.send(payload, RING_PORT, PHONE_IP, (error) => {
-      socket.close();
-      if (error) log(`ring send err ${safeError(error)}`);
-      else log(`RING を tweak へ送信: ${caller}`);
-    });
+    // 着信通知はSkyglowワーカーがcall_ops.jsonlを読み、端末へ配送する。
+    // 固定した端末IPへのUDP通知はDHCP変更や複数NICで壊れるため使用しない。
+    log(`着信をSkyglow通知キューへ記録: ${caller}`);
   } catch (error) {
     log(`call op err ${safeError(error)}`);
   }
